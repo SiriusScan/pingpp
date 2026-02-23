@@ -1,0 +1,1 @@
+Create a new project leveraging the instructions in @README.new-project.md and @README.task-management.md

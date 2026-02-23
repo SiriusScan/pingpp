@@ -1,0 +1,218 @@
+# Product Requirements Document (PRD)
+
+## Project Overview
+
+This PRD documents the Style Guide Boilerplate project - a comprehensive Next.js starter template with integrated documentation system, task management, and modern development tooling. This project serves as a "create-react-app" style boilerplate for new projects within the Sirius ecosystem.
+
+**Project Name**: Style Guide Boilerplate
+**Version**: 1.0.0
+**Date**: 2025-01-08
+**Author**: Sirius Project Team
+
+## Objectives
+
+1. **Create a production-ready Next.js boilerplate** with modern tooling and best practices
+2. **Establish comprehensive documentation system** with LLM-optimized structure
+3. **Implement task management system** using JSON Schema-compliant task files
+4. **Build reusable component library** foundation with ShadCN UI and Tailwind CSS
+5. **Set up CI/CD workflows** for automated testing, building, and deployment
+6. **Provide developer guides** for common development patterns and workflows
+
+## Target Audience
+
+- **Primary Users**: Developers starting new projects within the Sirius ecosystem
+- **Secondary Users**: Developers looking for Next.js boilerplate templates
+- **User Needs**: 
+  - Quick project setup with opinionated architecture
+  - Comprehensive documentation and guides
+  - Task management system for project tracking
+  - Modern UI component foundation
+  - Type-safe API development with tRPC
+
+## Technical Requirements
+
+### Technology Stack
+
+- **Frontend**: Next.js 16, React 19, TypeScript 5.9
+- **Backend**: Next.js API Routes, tRPC 11
+- **Database**: Drizzle ORM (SQLite default, PostgreSQL/MySQL supported)
+- **UI**: ShadCN UI components, Tailwind CSS 4
+- **State Management**: TanStack Query (React Query)
+- **Validation**: Zod 4
+- **Deployment**: Vercel (configured)
+- **CI/CD**: GitHub Actions
+
+### Functional Requirements
+
+1. **Documentation System**
+   - YAML front matter for machine-readable metadata
+   - Template-based documentation structure
+   - Developer guides for common patterns
+   - LLM-optimized content structure
+   - **Acceptance Criteria**: All documentation follows template structure, includes front matter, and is discoverable via documentation index
+
+2. **Task Management System**
+   - JSON Schema-compliant task files
+   - Task status tracking (pending, in_progress, completed, blocked)
+   - Dependency management between tasks
+   - Task validation script
+   - **Acceptance Criteria**: Tasks can be validated, dependencies are enforced, status updates work correctly
+
+3. **Component Library Foundation**
+   - ShadCN UI components integrated
+   - Custom layout components (AppLayout, PageLayout, ContentSection, GridLayout)
+   - Loading components (ActiveConstellationV2Loader)
+   - Consistent styling with Tailwind CSS
+   - **Acceptance Criteria**: All components follow design system patterns, are properly typed, and documented
+
+4. **API Development**
+   - tRPC setup with type-safe client/server
+   - Example routers demonstrating patterns
+   - Input validation with Zod
+   - Error handling patterns
+   - **Acceptance Criteria**: tRPC endpoints are type-safe, validated, and handle errors gracefully
+
+5. **Database Integration**
+   - Drizzle ORM configured
+   - Multi-provider support (SQLite, PostgreSQL, MySQL)
+   - Migration workflow
+   - Schema definition examples
+   - **Acceptance Criteria**: Database can be configured for any provider, migrations work correctly, schema is type-safe
+
+6. **Developer Experience**
+   - Comprehensive guides for common tasks
+   - Code organization patterns
+   - TypeScript patterns and conventions
+   - Styling conventions
+   - **Acceptance Criteria**: Developers can follow guides to implement features consistently
+
+### Non-Functional Requirements
+
+- **Performance**: 
+  - Page load time < 2 seconds
+  - Lighthouse performance score > 90
+  - Optimized bundle size
+
+- **Security**: 
+  - Input validation on all API endpoints
+  - Secure environment variable handling
+  - No sensitive data in client-side code
+
+- **Scalability**: 
+  - Support for multiple database providers
+  - Modular architecture for easy extension
+  - Component-based structure for reusability
+
+- **Accessibility**: 
+  - WCAG 2.1 AA compliance
+  - Keyboard navigation support
+  - Screen reader compatibility
+
+- **Browser Support**: 
+  - Modern browsers (Chrome, Firefox, Safari, Edge)
+  - Last 2 versions of each browser
+
+## Success Criteria
+
+- [x] Next.js application builds and runs successfully
+- [x] Documentation system is functional and comprehensive
+- [x] Task management system validates and tracks tasks correctly
+- [x] Component library foundation is established
+- [x] tRPC API development patterns are documented and working
+- [x] Database integration supports multiple providers
+- [x] Developer guides cover all common development patterns
+- [x] CI/CD workflows run successfully
+- [x] Application deploys to Vercel successfully
+- [x] Code follows TypeScript and React best practices
+
+## Timeline
+
+- **Phase 1**: Project Setup and Foundation (Completed)
+  - Initialize Next.js project
+  - Set up development environment
+  - Configure tooling (TypeScript, ESLint, Prettier)
+  - Set up CI/CD workflows
+
+- **Phase 2**: Core Features Implementation (Completed)
+  - Implement documentation system
+  - Build task management system
+  - Create component library foundation
+  - Set up tRPC and database integration
+
+- **Phase 3**: Developer Experience (Completed)
+  - Create comprehensive developer guides
+  - Document patterns and conventions
+  - Update template project with real-world examples
+  - Organize documentation structure
+
+- **Phase 4**: Deployment and Finalization (Completed)
+  - Deploy to Vercel
+  - Final documentation review
+  - Code cleanup and optimization
+  - Project handoff documentation
+
+## Dependencies
+
+### External Services
+
+- **Vercel**: Hosting and deployment platform
+- **GitHub**: Version control and CI/CD
+- **npm**: Package management
+
+### Assumptions
+
+- Developers are familiar with TypeScript and React
+- Node.js 20+ is available
+- Git is installed and configured
+- Vercel account is available for deployment
+
+### Constraints
+
+- Must work with Next.js 16 App Router
+- Must support SQLite, PostgreSQL, and MySQL databases
+- Must follow Sirius design system patterns
+- Documentation must be LLM-optimized
+
+## Risks
+
+- **Risk 1**: Documentation becomes outdated as code evolves
+  - **Mitigation**: Automated documentation updates via CI workflows, regular review cycles
+
+- **Risk 2**: Component library grows inconsistently
+  - **Mitigation**: Establish clear component patterns and review process
+
+- **Risk 3**: Task management system becomes complex
+  - **Mitigation**: Keep task structure simple, provide clear examples
+
+## Lessons Learned
+
+### What Worked Well
+
+1. **Documentation Structure**: Organizing docs into guides/ and development/ directories improved discoverability
+2. **TypeScript Patterns**: Establishing clear patterns early prevented inconsistencies
+3. **Component Organization**: Feature-based component organization made code easier to navigate
+4. **Real-World Examples**: Using actual project examples in templates made them more useful
+
+### What Could Be Improved
+
+1. **Initial Setup**: Could benefit from more detailed setup instructions
+2. **Testing**: Could add more comprehensive testing examples
+3. **Performance**: Could optimize bundle size further
+
+### Recommendations for Future Projects
+
+1. Start with documentation structure early
+2. Establish patterns before building features
+3. Use real-world examples in templates
+4. Keep documentation organized and discoverable
+5. Automate documentation updates when possible
+
+## Notes
+
+This PRD documents the actual Style Guide Boilerplate project that was built. It serves as a template showing how a real project PRD should be structured, with concrete examples based on actual implementation.
+
+The project successfully achieved all objectives and provides a solid foundation for new projects within the Sirius ecosystem.
+
+---
+
+_This PRD serves as a template based on the actual Style Guide Boilerplate project. Customize sections as needed for your specific project._

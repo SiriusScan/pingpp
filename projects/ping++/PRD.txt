@@ -1,0 +1,161 @@
+# Product Requirements Document (PRD)
+
+## Project Overview
+
+ping++ is a fast, modular network enumeration and OS fingerprinting tool written in Go. It rapidly detects host liveliness (up/down) and identifies operating systems through TTL analysis and protocol fingerprinting. The tool is designed as a library-first architecture that can be used both as a standalone CLI utility and imported by other Go applications.
+
+**Project Name**: ping++
+**Version**: 1.0.0
+**Date**: 2026-02-02
+**Author**: Sirius Project Team
+
+## Objectives
+
+1. **Rapid Host Enumeration**: Quickly detect which systems are alive in a network range
+2. **OS Fingerprinting**: Identify operating systems using TTL analysis and protocol probes
+3. **Library-First Design**: Enable import by other Go tools (following ProjectDiscovery patterns)
+4. **Modular Probe System**: Allow developers to easily add new enumeration techniques
+5. **Sirius Integration**: Seamlessly integrate with app-scanner and the Sirius ecosystem
+
+## Target Audience
+
+- **Primary Users**: Security professionals and network administrators running scans
+- **Secondary Users**: Go developers integrating ping++ as a library in their tools
+- **Integration Target**: Sirius app-scanner for pre-scan host fingerprinting
+
+## Technical Requirements
+
+### Technology Stack
+
+- **Language**: Go 1.24+
+- **CLI Framework**: projectdiscovery/goflags (consistency with PD tools)
+- **Logging**: projectdiscovery/gologger
+- **ICMP Library**: prometheus-community/pro-bing (actively maintained fork of go-ping)
+- **Integration**: github.com/SiriusScan/go-api (Sirius types)
+
+### Functional Requirements
+
+1. **Host Discovery**
+   - Support single IP, IP ranges, and CIDR notation as targets
+   - Support target list from file
+   - Detect host liveliness using multiple probe types
+   - **Acceptance Criteria**: Successfully enumerate 254 hosts in a /24 subnet within 30 seconds
+
+2. **Probe System (Modular)**
+   - ICMP Echo probe with TTL capture
+   - TCP SYN probe to common ports (22, 80, 443)
+   - ARP probe for Layer 2 enumeration (local networks)
+   - SMB probe for Windows-specific detection
+   - **Acceptance Criteria**: Each probe is a separate package, can be enabled/disabled independently
+
+3. **OS Fingerprinting**
+   - TTL-based OS family detection (Linux: 64, Windows: 128, Cisco: 255)
+   - Protocol-specific hints (SMB for Windows version details)
+   - **Acceptance Criteria**: Correctly identifies Linux vs Windows in 95%+ of cases
+
+4. **Library API (ProjectDiscovery Pattern)**
+   - Options struct for configuration
+   - Runner with RunEnumeration() method
+   - OnResult callback for streaming results
+   - **Acceptance Criteria**: Example code in examples/ compiles and runs successfully
+
+5. **CLI Interface**
+   - Target specification (-t, --target)
+   - Probe selection (--probes icmp,tcp)
+   - Output formats (text, JSON)
+   - **Acceptance Criteria**: CLI matches ProjectDiscovery tool conventions
+
+6. **Sirius Integration**
+   - Implement FingerprintStrategy interface from app-scanner
+   - Return results compatible with go-api types
+   - Support source attribution for data provenance
+   - **Acceptance Criteria**: app-scanner factory returns ping++ strategy, scans include fingerprint phase
+
+### Non-Functional Requirements
+
+- **Performance**: 
+  - Scan 254 hosts (/24 subnet) in under 30 seconds
+  - Support configurable concurrency (default: 50 workers)
+  - Minimal memory footprint (<100MB for large scans)
+
+- **Reliability**: 
+  - Handle network timeouts gracefully
+  - Retry failed probes (configurable retry count)
+  - Report unreachable hosts without crashing
+
+- **Portability**: 
+  - Run on Linux, macOS, and Windows
+  - Support both privileged (raw sockets) and unprivileged modes where possible
+
+- **Extensibility**: 
+  - New probes can be added without modifying core code
+  - Probe interface is well-documented
+  - Module structure allows independent development
+
+## Success Criteria
+
+- [ ] ICMP probe correctly detects host liveliness
+- [ ] TCP probe correctly detects hosts when ICMP is blocked
+- [ ] TTL-based OS detection returns correct family (linux/windows/unknown)
+- [ ] Library API follows ProjectDiscovery patterns (Options → Runner → RunEnumeration)
+- [ ] CLI provides PD-compatible interface
+- [ ] app-scanner integration replaces PlaceholderFingerprintStrategy
+- [ ] Unit tests pass with >80% coverage on core packages
+- [ ] Documentation includes library usage examples
+
+## Dependencies
+
+### External Services
+
+- None (standalone tool, no external API dependencies)
+
+### Go Dependencies
+
+- github.com/prometheus-community/pro-bing - ICMP operations
+- github.com/SiriusScan/go-api - Sirius types
+- github.com/projectdiscovery/goflags - CLI flags
+- github.com/projectdiscovery/gologger - Logging
+- golang.org/x/net - Low-level network operations
+
+### Integration Dependencies
+
+- app-scanner FingerprintStrategy interface (internal/scan/strategies.go)
+- go-api sirius.Host type for result compatibility
+
+### Assumptions
+
+- Target systems respond to at least one probe type
+- User has appropriate network permissions
+- Go 1.24+ is available for builds
+
+### Constraints
+
+- Must not be a full port scanner (that's Naabu's job)
+- Focus on liveliness and OS detection only
+- Ports used for probing should be limited to detection purposes
+
+## Risks
+
+- **Risk 1**: Raw socket operations require root/admin privileges on some systems
+  - **Mitigation**: Support unprivileged TCP connect fallback, document privilege requirements
+
+- **Risk 2**: ICMP may be blocked by firewalls
+  - **Mitigation**: Multiple probe types (TCP SYN as fallback)
+
+- **Risk 3**: TTL-based OS detection has false positives (routers modify TTL)
+  - **Mitigation**: Use multiple probe types, provide confidence scores, label as "hint" not definitive
+
+## Notes
+
+This tool is specifically designed to integrate with the Sirius vulnerability scanning platform. It replaces the PlaceholderFingerprintStrategy in app-scanner with actual host enumeration and OS detection capabilities.
+
+The tool is NOT designed to:
+- Perform comprehensive port scanning (use Naabu)
+- Identify running services (use Nmap)
+- Find vulnerabilities (use the full Sirius scan pipeline)
+
+Its sole purpose is rapid pre-scan reconnaissance: Is the host up? What OS is it running?
+
+---
+
+_This PRD defines the ping++ network fingerprinting tool for the Sirius ecosystem._

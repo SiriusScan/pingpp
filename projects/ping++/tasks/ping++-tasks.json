@@ -1,0 +1,295 @@
+{
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "title": "ping++ Project Tasks",
+  "description": "Task management for ping++ network fingerprinting tool",
+  "project": {
+    "name": "ping++",
+    "version": "1.0.0"
+  },
+  "tasks": [
+    {
+      "id": "1",
+      "title": "PHASE 1: Project Setup and Foundation",
+      "description": "Initialize project structure, Go module, and core interfaces",
+      "details": "Set up the ping++ project with proper Go module structure, define core interfaces following ProjectDiscovery patterns, and create the foundation for the modular probe system.",
+      "status": "completed",
+      "priority": "high",
+      "dependencies": [],
+      "assignedTo": "Development Team",
+      "createdAt": "2026-02-02T00:00:00Z",
+      "updatedAt": "2026-02-02T00:00:00Z",
+      "testStrategy": "Verify all subtasks are completed, go build ./... succeeds, and project structure matches plan.",
+      "subtasks": [
+        {
+          "id": "1.1",
+          "title": "Create project folder from template",
+          "description": "Copy template-project to projects/ping++",
+          "status": "completed",
+          "priority": "high",
+          "dependencies": [],
+          "testStrategy": "Verify projects/ping++/ directory exists with correct structure."
+        },
+        {
+          "id": "1.2",
+          "title": "Complete PRD.txt with requirements",
+          "description": "Fill out product requirements document",
+          "status": "completed",
+          "priority": "high",
+          "dependencies": ["1.1"],
+          "testStrategy": "PRD.txt has all sections filled with specific requirements."
+        },
+        {
+          "id": "1.3",
+          "title": "Create ping++-tasks.json",
+          "description": "Create detailed task breakdown following JSON Schema",
+          "status": "completed",
+          "priority": "high",
+          "dependencies": ["1.1"],
+          "testStrategy": "JSON validates against schema, all tasks have required fields."
+        },
+        {
+          "id": "1.4",
+          "title": "Initialize Go module (go.mod)",
+          "description": "Create go.mod with module path and dependencies",
+          "status": "completed",
+          "priority": "high",
+          "dependencies": ["1.1"],
+          "testStrategy": "go mod tidy succeeds without errors."
+        },
+        {
+          "id": "1.5",
+          "title": "Define Probe interface",
+          "description": "Create pkg/probes/probe.go with Probe interface",
+          "status": "completed",
+          "priority": "high",
+          "dependencies": ["1.4"],
+          "testStrategy": "Interface compiles, is documented with godoc comments."
+        },
+        {
+          "id": "1.6",
+          "title": "Define Options struct",
+          "description": "Create pkg/runner/options.go following ProjectDiscovery pattern",
+          "status": "completed",
+          "priority": "high",
+          "dependencies": ["1.4"],
+          "testStrategy": "Options struct compiles, matches ProjectDiscovery patterns."
+        },
+        {
+          "id": "1.7",
+          "title": "Define Result types",
+          "description": "Create pkg/runner/result.go with Result struct",
+          "status": "completed",
+          "priority": "high",
+          "dependencies": ["1.4"],
+          "testStrategy": "Result type compiles, can be converted to sirius.Host."
+        },
+        {
+          "id": "1.8",
+          "title": "Create Runner skeleton",
+          "description": "Create pkg/runner/runner.go with Runner struct",
+          "status": "completed",
+          "priority": "high",
+          "dependencies": ["1.5", "1.6", "1.7"],
+          "testStrategy": "go build ./... succeeds, Runner can be instantiated."
+        }
+      ]
+    },
+    {
+      "id": "2",
+      "title": "PHASE 2: Core Probes",
+      "description": "Implement ICMP, TCP probes and TTL-based OS detection",
+      "status": "completed",
+      "priority": "high",
+      "dependencies": ["1"],
+      "testStrategy": "All probes work independently, TTL detection correctly identifies Linux vs Windows.",
+      "subtasks": [
+        {
+          "id": "2.1",
+          "title": "Implement ICMP probe",
+          "description": "Create pkg/probes/icmp/icmp.go with ICMP Echo probe",
+          "status": "completed",
+          "priority": "high",
+          "dependencies": ["1.8"],
+          "testStrategy": "Ping localhost returns Success=true with TTL value."
+        },
+        {
+          "id": "2.2",
+          "title": "Implement TCP SYN probe",
+          "description": "Create pkg/probes/tcp/tcp.go with TCP probe",
+          "status": "completed",
+          "priority": "high",
+          "dependencies": ["1.8"],
+          "testStrategy": "Probe detects open port 80 on a web server."
+        },
+        {
+          "id": "2.3",
+          "title": "Implement TTL-based OS detection",
+          "description": "Create fingerprint/ttl.go with TTL analysis",
+          "status": "completed",
+          "priority": "high",
+          "dependencies": ["2.1"],
+          "testStrategy": "TTL 64 returns 'linux', TTL 128 returns 'windows', TTL 255 returns 'cisco'."
+        },
+        {
+          "id": "2.4",
+          "title": "Implement result aggregation",
+          "description": "Create fingerprint/os.go with result aggregation",
+          "status": "completed",
+          "priority": "high",
+          "dependencies": ["2.1", "2.2", "2.3"],
+          "testStrategy": "Multiple probe results combine into single Result with best OS determination."
+        }
+      ]
+    },
+    {
+      "id": "3",
+      "title": "PHASE 3: Advanced Probes",
+      "description": "Implement ARP and SMB probes for enhanced detection",
+      "status": "completed",
+      "priority": "medium",
+      "dependencies": ["2"],
+      "testStrategy": "ARP probe returns MAC addresses on local network, SMB probe returns Windows version hints.",
+      "subtasks": [
+        {
+          "id": "3.1",
+          "title": "Implement ARP probe",
+          "description": "Create pkg/probes/arp/arp.go with ARP probe",
+          "status": "completed",
+          "priority": "medium",
+          "dependencies": ["2.4"],
+          "testStrategy": "Local network scan returns MAC addresses for discovered hosts."
+        },
+        {
+          "id": "3.2",
+          "title": "Implement SMB probe",
+          "description": "Create pkg/probes/smb/smb.go with SMB probe",
+          "status": "completed",
+          "priority": "medium",
+          "dependencies": ["2.4"],
+          "testStrategy": "Windows host returns OS version hint from SMB response."
+        }
+      ]
+    },
+    {
+      "id": "4",
+      "title": "PHASE 4: Runner and Integration",
+      "description": "Complete Runner implementation and app-scanner integration",
+      "status": "completed",
+      "priority": "high",
+      "dependencies": ["2"],
+      "testStrategy": "Runner scans multiple hosts concurrently, app-scanner uses ping++ for fingerprinting.",
+      "subtasks": [
+        {
+          "id": "4.1",
+          "title": "Implement Runner with worker pool",
+          "description": "Complete pkg/runner/runner.go with concurrency",
+          "status": "completed",
+          "priority": "high",
+          "dependencies": ["2.4"],
+          "testStrategy": "Concurrent scan of 10 hosts completes without race conditions."
+        },
+        {
+          "id": "4.2",
+          "title": "Implement OnResult callback system",
+          "description": "Wire up OnResult callback in Runner",
+          "status": "completed",
+          "priority": "high",
+          "dependencies": ["4.1"],
+          "testStrategy": "OnResult callback receives each result as scan completes."
+        },
+        {
+          "id": "4.3",
+          "title": "Implement FingerprintStrategy adapter",
+          "description": "Create integration/appscanner/strategy.go",
+          "status": "completed",
+          "priority": "high",
+          "dependencies": ["4.1"],
+          "testStrategy": "Strategy implements FingerprintStrategy interface, returns valid FingerprintResult."
+        },
+        {
+          "id": "4.4",
+          "title": "Verify go-api type compatibility",
+          "description": "Ensure Result converts to sirius.Host",
+          "status": "completed",
+          "priority": "high",
+          "dependencies": ["4.3"],
+          "testStrategy": "Result.ToSiriusHost() returns valid sirius.Host struct."
+        }
+      ]
+    },
+    {
+      "id": "5",
+      "title": "PHASE 5: CLI and Polish",
+      "description": "Implement CLI, documentation, tests, and CI/CD",
+      "status": "completed",
+      "priority": "medium",
+      "dependencies": ["4"],
+      "testStrategy": "CLI works, tests pass, documentation is complete, CI/CD runs successfully.",
+      "subtasks": [
+        {
+          "id": "5.1",
+          "title": "Implement CLI with goflags",
+          "description": "Create cmd/pingpp/main.go with CLI",
+          "status": "completed",
+          "priority": "medium",
+          "dependencies": ["4.2"],
+          "testStrategy": "pingpp -t 127.0.0.1 runs successfully and outputs results."
+        },
+        {
+          "id": "5.2",
+          "title": "Add JSON output format",
+          "description": "Implement -json flag for JSON output",
+          "status": "completed",
+          "priority": "medium",
+          "dependencies": ["5.1"],
+          "testStrategy": "-json flag outputs valid JSON lines."
+        },
+        {
+          "id": "5.3",
+          "title": "Create library usage example",
+          "description": "Create examples/simple/main.go",
+          "status": "completed",
+          "priority": "medium",
+          "dependencies": ["4.2"],
+          "testStrategy": "Example compiles and runs successfully."
+        },
+        {
+          "id": "5.4",
+          "title": "Write unit tests",
+          "description": "Add tests for core packages",
+          "status": "completed",
+          "priority": "medium",
+          "dependencies": ["2.4", "4.2"],
+          "testStrategy": "go test ./... passes with >80% coverage."
+        },
+        {
+          "id": "5.5",
+          "title": "Set up CI/CD pipeline",
+          "description": "Create .github/workflows/ci.yml",
+          "status": "completed",
+          "priority": "low",
+          "dependencies": ["5.4"],
+          "testStrategy": "GitHub Actions workflow runs successfully on push."
+        },
+        {
+          "id": "5.6",
+          "title": "Update README documentation",
+          "description": "Complete README.md with usage examples",
+          "status": "completed",
+          "priority": "medium",
+          "dependencies": ["5.1"],
+          "testStrategy": "README has all sections, examples are accurate."
+        },
+        {
+          "id": "5.7",
+          "title": "Project cleanup and handoff",
+          "description": "Final cleanup and integration verification",
+          "status": "completed",
+          "priority": "low",
+          "dependencies": ["5.1", "5.2", "5.3", "5.4", "5.5", "5.6"],
+          "testStrategy": "All tasks completed, integration verified, clean git status."
+        }
+      ]
+    }
+  ]
+}
