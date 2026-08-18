@@ -58,6 +58,11 @@ func (c *Collector) Run(ctx context.Context, in engine.CollectorInput) ([]model.
 		pinger.Timeout = in.Timeout
 	}
 	pinger.SetPrivileged(true)
+	release, err := transport.AcquireHost(ctx)
+	if err != nil {
+		return nil, err
+	}
+	defer release()
 	if err := transport.CountDial(ctx); err != nil {
 		return nil, err
 	}
@@ -76,6 +81,8 @@ func (c *Collector) Run(ctx context.Context, in engine.CollectorInput) ([]model.
 	}
 
 	stats := pinger.Statistics()
+	const icmpEchoBytes = 64
+	transport.AddObservedBytes(ctx, int64(stats.PacketsRecv)*icmpEchoBytes, int64(stats.PacketsSent)*icmpEchoBytes)
 	obs := model.ObservationRecord{
 		ID:              fmt.Sprintf("obs:icmp:%s:%d", ip, time.Now().UnixNano()),
 		ProbeID:         collectorID,

@@ -8,6 +8,30 @@ import (
 	"github.com/SiriusScan/ping++/internal/cli"
 )
 
+func TestInfoAndCollectors(t *testing.T) {
+	var stdout, stderr bytes.Buffer
+	if code := cli.Run([]string{"info"}, &stdout, &stderr); code != 0 {
+		t.Fatalf("info code=%d stderr=%s", code, stderr.String())
+	}
+	if !strings.Contains(stdout.String(), "pkg/engine") {
+		t.Fatalf("info=%q", stdout.String())
+	}
+	stdout.Reset()
+	if code := cli.Run([]string{"collectors"}, &stdout, &stderr); code != 0 {
+		t.Fatalf("collectors code=%d stderr=%s", code, stderr.String())
+	}
+	if !strings.Contains(stdout.String(), "collect.http") {
+		t.Fatalf("collectors=%q", stdout.String())
+	}
+	stdout.Reset()
+	if code := cli.Run([]string{"profiles"}, &stdout, &stderr); code != 0 {
+		t.Fatalf("profiles code=%d", code)
+	}
+	if !strings.Contains(stdout.String(), "quick") || !strings.Contains(stdout.String(), "full") {
+		t.Fatalf("profiles=%q", stdout.String())
+	}
+}
+
 func TestVersion(t *testing.T) {
 	var stdout, stderr bytes.Buffer
 	code := cli.Run([]string{"version"}, &stdout, &stderr)

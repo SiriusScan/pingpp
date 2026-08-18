@@ -1,30 +1,26 @@
 # ping++
 
-> Fast network enumeration and OS fingerprinting tool
+Evidence-first adaptive network fingerprinting engine. ping++ discovers
+what is on a host, collects protocol observations, and infers products from
+data-driven fingerprint rules. It does not perform vulnerability discovery.
 
-[![Go Version](https://img.shields.io/badge/go-1.24+-blue.svg)](https://golang.org/)
-[![License](https://img.shields.io/badge/license-MIT-green.svg)](LICENSE)
+Production execution:
 
-## Overview
+```text
+cmd/pingpp → internal/cli → pkg/runner.ScanRun → pkg/scan.Session → pkg/engine
+```
 
-**ping++** is a fast, modular network enumeration and OS fingerprinting tool written in Go. It rapidly detects host liveliness and identifies operating systems through multi-source fingerprinting with weighted evidence aggregation.
+Sirius consumes ping++ only through `integration/appscanner`. That adapter
+translates Engine results into the existing host/inventory shape. ping++ does
+not own Sirius UI, auth, tRPC, or persistence.
 
-Key features:
-
-- **Fast enumeration** - Scan /24 subnets in seconds
-- **Multi-source OS detection** - SSH banners, HTTP headers, SMB negotiation, TTL, and port analysis
-- **Confidence scoring** - Weighted evidence aggregation with confidence percentages
-- **Multiple probe types** - ICMP, TCP, SSH, HTTP, SMB, ARP
-- **Library-first design** - Use as CLI or import in your Go projects
-- **Sirius integration** - Works with the Sirius vulnerability scanning platform
-
-## Installation
+## Install
 
 ```bash
 go install github.com/SiriusScan/ping++/cmd/pingpp@latest
 ```
 
-Or build from source:
+From source:
 
 ```bash
 git clone https://github.com/SiriusScan/ping++
@@ -32,268 +28,71 @@ cd ping++
 go build -o pingpp ./cmd/pingpp
 ```
 
-## Usage
-
-### CLI
+## CLI
 
 ```bash
-# Scan a single host (shows only alive hosts by default)
-pingpp -t 192.168.1.100
+pingpp version
+pingpp collectors
+pingpp profiles
+pingpp info
 
-# Scan a subnet
-pingpp -t 192.168.1.0/24
-
-# Verbose output - shows detection reasoning
-pingpp -t 192.168.1.100 -v
-
-# Show all hosts (including offline)
-pingpp -t 192.168.1.0/24 -a
-
-# Verbose + all hosts (full detail)
-pingpp -t 192.168.1.0/24 -v -a
-
-# Scan with specific probes
-pingpp -t 192.168.1.0/24 -probes icmp,tcp
-
-# Output to JSON
-pingpp -t 192.168.1.0/24 -json -o results.json
-
-# Scan from file
-pingpp -l targets.txt
-
-# Unprivileged mode (no ICMP)
-pingpp -t 192.168.1.0/24 -no-icmp
+pingpp scan --profile quick --no-icmp -t 192.0.2.1 --format jsonl
+pingpp scan --profile default --tcp-ports 80,443 -t example.com
+pingpp scan --skip-discovery --tcp-ports none --udp-ports none -l targets.txt
 ```
 
-### Library
+Targets are IPv4, IPv6, hostname, or CIDR. URLs and `host:port` are rejected.
+`--profile full` enumerates TCP 1–65535 and is not a default.
 
-```go
-package main
+Formats: `text` (default), `json`, `jsonl` (`pingpp.scan/v1`).
 
-import (
-    "context"
-    "fmt"
-    "time"
+`-probes` from the legacy runner is not accepted. Use profiles, port
+selections, and `--no-icmp` / `--skip-discovery`.
 
-    "github.com/SiriusScan/ping++/pkg/runner"
-)
+## Invariants
 
-func main() {
-    options := runner.DefaultOptions()
-    options.Targets = []string{"192.168.1.0/24"}
-    options.ProbeTypes = []string{"icmp", "tcp"}
-    options.Timeout = 3 * time.Second
+- Ports are priors, never protocol identity.
+- Collectors return observations; fingerprint rules infer products.
+- Protocol detection is port-agnostic. Unknown is valid.
+- All A/AAAA addresses are considered; evidence is attributed to the address
+  that was actually observed.
+- HTTP connects to the selected IP while Host and TLS SNI use the logical
+  hostname. `example.com` and `www.example.com` are different hosts.
+- Cancellation records a terminal disposition for every scheduled task.
+- Host-wide transport concurrency is `MaxConcurrentPerHost` around real I/O.
 
-    options.OnResult = func(result *runner.Result) {
-        fmt.Printf("%s [%s] OS:%s TTL:%d\n",
-            result.IP,
-            boolToStatus(result.IsAlive),
-            result.OSFamily,
-            result.TTL,
-        )
-    }
-
-    r, _ := runner.NewRunner(options)
-    defer r.Close()
-
-    r.RunEnumeration(context.Background())
-}
-
-func boolToStatus(alive bool) string {
-    if alive { return "up" }
-    return "down"
-}
-```
-
-## Probe Types
-
-| Probe  | Description                       | Privileges | OS Info                                       |
-| ------ | --------------------------------- | ---------- | --------------------------------------------- |
-| `icmp` | ICMP Echo (ping) with TTL capture | Root/Admin | TTL-based OS family                           |
-| `tcp`  | TCP connection to common ports    | None       | Port detection                                |
-| `ssh`  | SSH banner grabbing on port 22    | None       | OS version from banner (Ubuntu, Debian, etc.) |
-| `http` | HTTP Server header analysis       | None       | OS from Apache/nginx/IIS headers              |
-| `smb`  | SMB2 negotiation for Windows      | None       | Windows version detection                     |
-| `arp`  | ARP for local network enumeration | Root/Admin | MAC vendor                                    |
-
-## OS Detection
-
-ping++ uses a **multi-source fingerprinting engine** with weighted evidence aggregation:
-
-### Evidence Sources and Weights
-
-| Source      | Weight | Description                                                              |
-| ----------- | ------ | ------------------------------------------------------------------------ |
-| SSH Banner  | 0.95   | Highly reliable, often includes exact distro (e.g., "Ubuntu-3ubuntu0.1") |
-| SMB         | 0.90   | Windows-specific, extracts version from dialect                          |
-| HTTP Server | 0.80   | Server header analysis (Apache/nginx/IIS)                                |
-| Port Combo  | 0.70   | Strong correlation from port combinations (135+445+3389 = Windows)       |
-| Single Port | 0.50   | Individual OS-specific ports (e.g., 548 = macOS)                         |
-| TTL         | 0.30   | Fallback, less reliable                                                  |
-
-### Example Output
-
-```
-192.168.1.100 [UP]
-  OS: linux (Debian)
-  Confidence: 62%
-  Evidence:
-    - ssh_banner: linux (Debian) [weight: 0.95]
-      Raw: SSH-2.0-OpenSSH_9.2p1 Debian-2+deb12u2
-    - ttl: linux [weight: 0.30]
-      Raw: TTL 64 (original: 64)
-  SSH Banner: SSH-2.0-OpenSSH_9.2p1 Debian-2+deb12u2
-
-192.168.1.200 [UP]
-  OS: windows
-  Confidence: 64%
-  Evidence:
-    - smb: windows [weight: 0.90]
-      Raw: SMB port 445
-    - ports: windows [weight: 0.38]
-      Raw: Port 445 (SMB)
-```
-
-### Port-Based Heuristics
-
-| Port(s)        | Service        | OS Indicator        |
-| -------------- | -------------- | ------------------- |
-| 135, 445, 3389 | RPC+SMB+RDP    | Windows (very high) |
-| 445            | SMB            | Windows (strong)    |
-| 548            | AFP            | macOS               |
-| 111, 2049      | Portmapper+NFS | Linux/Unix          |
-| 22 + 548       | SSH+AFP        | macOS               |
-
-### TTL Fallback
-
-| Original TTL | OS Family              |
-| ------------ | ---------------------- |
-| 64           | Linux, macOS, BSD      |
-| 128          | Windows                |
-| 255          | Cisco, network devices |
-
-## Options
-
-```
-INPUT:
-   -t, -target       Target to scan (IP, CIDR, hostname)
-   -l, -list         File containing list of targets
-
-PROBES:
-   -p, -probes       Probe types to use (icmp,tcp,ssh,http,smb,arp)
-   -ports            TCP ports for probing (default: 22,80,443)
-   -no-icmp          Disable ICMP probing
-
-OUTPUT:
-   -o, -output       Output file
-   -json             Output in JSON format
-   -v, -verbose      Verbose output with detection reasoning
-   -a, -all          Show all hosts (including offline; default: only alive)
-   -silent           Silent mode
-   -debug            Debug mode
-
-CONFIGURATION:
-   -timeout          Timeout in seconds (default: 3)
-   -retries          Number of retries (default: 2)
-   -rate             Probes per second (default: 100)
-   -threads          Concurrent threads (default: 50)
-   -resolve          Resolve hostnames
-
-OUTPUT:
-   -o, -output       Output file
-   -json             Output in JSON format
-   -silent           Silent mode
-   -debug            Debug mode
-```
-
-## Integration with Sirius
-
-ping++ integrates with the [Sirius](https://github.com/SiriusScan) vulnerability scanning platform as the fingerprinting engine:
+## Sirius adapter
 
 ```go
 import "github.com/SiriusScan/ping++/integration/appscanner"
 
-// Create strategy for app-scanner
-strategy := appscanner.NewStrategy()
-
-// Use in scan pipeline
+strategy := appscanner.NewStrategy() // Engine/Session path
 result, err := strategy.Fingerprint("192.168.1.100")
-if err != nil {
-    log.Fatal(err)
-}
-
-fmt.Printf("Alive: %t, OS: %s\n", result.IsAlive, result.OSFamily)
 ```
 
-## Project Structure
+`ProbeTypes` and `DisableICMP` map into `scan.Config` / `engine.Options`.
+The result `Asset` map is `output.ToSiriusHost`. `UseLegacyRunner` is a
+temporary rollback flag and is not the supported path.
 
-```
-ping++/
-├── cmd/pingpp/          # CLI entry point
-├── pkg/
-│   ├── runner/          # Core runner and options
-│   └── probes/          # Probe implementations
-│       ├── icmp/        # ICMP probe
-│       ├── tcp/         # TCP probe
-│       ├── ssh/         # SSH banner probe
-│       ├── http/        # HTTP header probe
-│       ├── smb/         # SMB2 probe
-│       └── arp/         # ARP probe
-├── fingerprint/         # OS detection logic
-│   ├── ttl.go           # TTL-based detection
-│   ├── ports.go         # Port-based heuristics
-│   ├── evidence.go      # Evidence structure
-│   └── aggregator.go    # Weighted aggregation engine
-├── integration/         # External integrations
-│   └── appscanner/      # Sirius app-scanner adapter
-└── examples/            # Usage examples
-```
+## Architecture
 
-## Development
+See [docs/architecture.md](docs/architecture.md). Collectors produce facts.
+Fingerprints infer products. The planner schedules. `scan.Session` owns one
+prepared runtime. Runner V2 multiplexes targets. The Sirius adapter translates
+only.
 
-### Requirements
-
-- Go 1.24+
-- Root/Admin for ICMP probing (optional)
-
-### Building
-
-```bash
-go build ./...
-```
-
-### Testing
+## Tests
 
 ```bash
 go test ./...
+go test -race ./pkg/engine ./pkg/transport ./pkg/protocol/... ./pkg/scan ./pkg/runner ./pkg/model ./pkg/output ./integration/appscanner
+go vet ./...
 ```
 
-### Running locally
-
-There is no `cmd/pingpp` binary yet. Use the enumeration example. Default output is a complete diagnostic dump (every endpoint, observation payload, and claim). Pass `-json` when another tool should consume the same document.
-
-```bash
-go run ./examples/scan -t https://n8n.example.com/
-go run ./examples/scan -seed example.com
-go run ./examples/scan -json -o scan.json n8n.example.com
-```
-
-ICMP discovery needs root and is skipped automatically when unprivileged. TCP connect success is `responsive`, not `open`; `open` requires a protocol handshake. Diagnostic text is not truncated.
-
-## Dependencies
-
-- [pro-bing](https://github.com/prometheus-community/pro-bing) - ICMP operations
-- [goflags](https://github.com/projectdiscovery/goflags) - CLI parsing
-- [gologger](https://github.com/projectdiscovery/gologger) - Logging
-- [go-api](https://github.com/SiriusScan/go-api) - Sirius types
+Fingerprint corpora (YAML, Recog XML, Wappalyzer JSON subset) are embedded in
+the binary. Third-party notices are in [NOTICE](NOTICE).
 
 ## License
 
-MIT License - see [LICENSE](LICENSE) for details.
-
-## Related Projects
-
-- [Sirius](https://github.com/SiriusScan/Sirius) - Vulnerability scanning platform
-- [app-scanner](https://github.com/SiriusScan/app-scanner) - Port scanning and service detection
-- [naabu](https://github.com/projectdiscovery/naabu) - Port scanner (inspiration)
-- [httpx](https://github.com/projectdiscovery/httpx) - HTTP toolkit (inspiration)
+MIT — see [LICENSE](LICENSE) if present in this tree; otherwise the module
+license in `go.mod` / repository metadata.

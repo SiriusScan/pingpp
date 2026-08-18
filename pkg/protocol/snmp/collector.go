@@ -71,15 +71,6 @@ func (c *Collector) RunResult(ctx context.Context, in engine.CollectorInput) (en
 		obs.AssetID = in.Asset.ID
 	}
 
-	if err := transport.CountDial(ctx); err != nil {
-		obs.Error = err.Error()
-		obs.Completeness = "none"
-		return engine.CollectorResult{
-			Outcome:      engine.OutcomeFromError(err),
-			Protocol:     "snmp",
-			Observations: []model.ObservationRecord{obs},
-		}, nil
-	}
 	g := &gosnmp.GoSNMP{
 		Target:    in.Endpoint.Address,
 		Port:      in.Endpoint.Port,
@@ -90,7 +81,8 @@ func (c *Collector) RunResult(ctx context.Context, in engine.CollectorInput) (en
 		MaxOids:   8,
 		Context:   ctx,
 	}
-	if err := g.Connect(); err != nil {
+	conn, err := transport.DialUDP(ctx, in.Endpoint.Address, in.Endpoint.Port, timeout)
+	if err != nil {
 		obs.Error = err.Error()
 		obs.Completeness = "none"
 		return engine.CollectorResult{
@@ -99,8 +91,8 @@ func (c *Collector) RunResult(ctx context.Context, in engine.CollectorInput) (en
 			Observations: []model.ObservationRecord{obs},
 		}, nil
 	}
-	g.Conn = transport.WrapConn(ctx, g.Conn)
-	defer func() { _ = g.Conn.Close() }()
+	g.Conn = conn
+	defer func() { _ = conn.Close() }()
 
 	oids := []string{
 		"1.3.6.1.2.1.1.1.0",          // sysDescr

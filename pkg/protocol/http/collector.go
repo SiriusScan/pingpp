@@ -151,6 +151,7 @@ func (c *Collector) RunResult(ctx context.Context, in engine.CollectorInput) (en
 	defer func() { _ = resp.Body.Close() }()
 
 	body, truncated := readLimited(resp.Body, maxBody)
+	_ = resp.Body.Close()
 	payload := buildHTTPObservation(publicURL, resp, body)
 	payload.Truncated = truncated
 	if resp.Request != nil && resp.Request.URL != nil {
@@ -347,8 +348,7 @@ func sameHTTPHost(a, b *url.URL) bool {
 }
 
 func canonicalHTTPHost(h string) string {
-	h = strings.ToLower(strings.TrimSuffix(h, "."))
-	return strings.TrimPrefix(h, "www.")
+	return strings.ToLower(strings.TrimSuffix(h, "."))
 }
 
 func readLimited(r io.Reader, max int) ([]byte, bool) {

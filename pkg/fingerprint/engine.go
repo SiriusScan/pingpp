@@ -201,10 +201,11 @@ func (e *Engine) Match(observations []model.ObservationRecord) []model.Claim {
 	var raw []model.Claim
 	hydrated := make([]model.ObservationRecord, 0, len(observations))
 	for _, obs := range observations {
-		hydrated = append(hydrated, e.hydrate(obs))
+		hydrated = append(hydrated, NormalizeObservation(e.hydrate(obs)))
 	}
 	for _, obs := range hydrated {
 		fields := flattenObservation(obs)
+		applyCanonicalFields(fields)
 		for _, cr := range e.rules {
 			if cr.rule.Inputs.ObservationType != "" && cr.rule.Inputs.ObservationType != obs.ObservationType {
 				continue

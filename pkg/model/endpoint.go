@@ -36,6 +36,16 @@ const (
 
 // EndpointExecution is scan-plan completeness, independent of observed
 // network state. A budget limit means we do not know because we did not ask.
+//
+// Completeness is monotonic: later tasks must not make a disposition less
+// informative. Rank (high to low):
+//
+//	attempted > timed_out > not_attempted_budget | not_attempted_cancelled
+//
+// attempted is not replaced by timed_out or any not-attempted reason.
+// timed_out is not replaced by budget-skipped or cancelled.
+// Equal-rank not-attempted reasons keep the first value.
+// EndpointState remains independent of this field.
 type EndpointExecution string
 
 const (
@@ -44,6 +54,32 @@ const (
 	ExecutionNotAttemptedCancelled EndpointExecution = "not_attempted_cancelled"
 	ExecutionTimedOut              EndpointExecution = "timed_out"
 )
+
+// ExecutionRank is how informative a disposition is. Higher must not be
+// replaced by lower.
+func ExecutionRank(e EndpointExecution) int {
+	switch e {
+	case ExecutionAttempted:
+		return 3
+	case ExecutionTimedOut:
+		return 2
+	case ExecutionNotAttemptedBudget, ExecutionNotAttemptedCancelled:
+		return 1
+	default:
+		return 0
+	}
+}
+
+// MergeExecution returns the more informative of current and incoming.
+func MergeExecution(current, incoming EndpointExecution) EndpointExecution {
+	if incoming == "" {
+		return current
+	}
+	if ExecutionRank(incoming) > ExecutionRank(current) {
+		return incoming
+	}
+	return current
+}
 
 // Valid reports whether s is a known endpoint state.
 func (s EndpointState) Valid() bool {

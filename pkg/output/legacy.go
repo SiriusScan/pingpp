@@ -117,6 +117,7 @@ func assetEndpoints(asset *model.Asset) []map[string]interface{} {
 			"port":      ep.Port,
 			"transport": ep.Transport,
 			"state":     ep.State,
+			"execution": ep.Execution,
 		})
 	}
 	return out

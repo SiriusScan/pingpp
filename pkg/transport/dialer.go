@@ -20,6 +20,16 @@ func DialUDP(ctx context.Context, address string, port uint16, timeout time.Dura
 }
 
 func dial(ctx context.Context, network, address string, port uint16, timeout time.Duration) (net.Conn, error) {
+	release, err := acquireHost(ctx)
+	if err != nil {
+		return nil, err
+	}
+	held := true
+	defer func() {
+		if held {
+			release()
+		}
+	}()
 	if err := recordDial(ctx); err != nil {
 		return nil, err
 	}
@@ -28,7 +38,8 @@ func dial(ctx context.Context, network, address string, port uint16, timeout tim
 	if err != nil {
 		return nil, err
 	}
-	return WrapConn(ctx, conn), nil
+	held = false
+	return wrapRelease(WrapConn(ctx, conn), release), nil
 }
 
 func recordDial(ctx context.Context) error {

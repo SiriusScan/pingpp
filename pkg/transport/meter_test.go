@@ -70,6 +70,29 @@ func TestMeterCountsConnBytes(t *testing.T) {
 	}
 }
 
+func TestMeterAndHostPermitAreIndependent(t *testing.T) {
+	m := &transport.Meter{MaxNetworkOps: 8}
+	h := transport.NewHostLimiter(1)
+	ctx := transport.WithMeter(context.Background(), m)
+	ctx = transport.WithHostLimiter(ctx, h)
+	release, err := transport.AcquireHost(ctx)
+	if err != nil {
+		t.Fatal(err)
+	}
+	ops, _, _, _ := m.Snapshot()
+	if ops != 0 {
+		t.Fatalf("permit counted as dial ops=%d", ops)
+	}
+	release()
+	if err := transport.CountDial(ctx); err != nil {
+		t.Fatal(err)
+	}
+	ops, _, _, _ = m.Snapshot()
+	if ops != 1 {
+		t.Fatalf("ops=%d", ops)
+	}
+}
+
 func TestCountDialRespectsBudget(t *testing.T) {
 	m := &transport.Meter{MaxNetworkOps: 1}
 	ctx := transport.WithMeter(context.Background(), m)

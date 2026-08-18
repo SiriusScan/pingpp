@@ -23,6 +23,9 @@ const usage = `pingpp — adaptive host scanner
 Usage:
   pingpp scan [flags] [target ...]
   pingpp version
+  pingpp collectors
+  pingpp profiles
+  pingpp info
 
 Targets are IPv4, IPv6, hostname, or CIDR. URLs and host:port are rejected.
 
@@ -56,6 +59,12 @@ func Run(args []string, stdout, stderr io.Writer) int {
 	switch args[0] {
 	case "version":
 		return runVersion(args[1:], stdout, stderr)
+	case "collectors":
+		return runCollectors(stdout, stderr)
+	case "profiles":
+		return runProfiles(stdout, stderr)
+	case "info":
+		return runInfo(stdout, stderr)
 	case "help", "-h", "--help":
 		fmt.Fprint(stdout, usage)
 		return 0
@@ -69,6 +78,49 @@ func Run(args []string, stdout, stderr io.Writer) int {
 func runVersion(_ []string, stdout, stderr io.Writer) int {
 	info := buildinfo.Current()
 	if _, err := fmt.Fprintf(stdout, "pingpp %s commit=%s corpus=%s %s\n", info.Version, info.Commit, info.FingerprintCorpusID, info.GoVersion); err != nil {
+		fmt.Fprintf(stderr, "%v\n", err)
+		return 1
+	}
+	return 0
+}
+
+func runCollectors(stdout, stderr io.Writer) int {
+	reg := scan.NewRegistry()
+	for _, md := range reg.Metadata() {
+		if _, err := fmt.Fprintf(stdout, "%s\tstage=%s\tprio=%d\tcost=%d\n", md.ID, md.Stage, md.Priority, md.Cost); err != nil {
+			fmt.Fprintf(stderr, "%v\n", err)
+			return 1
+		}
+	}
+	return 0
+}
+
+func runProfiles(stdout, stderr io.Writer) int {
+	for _, name := range []engine.ProfileName{engine.ProfileQuick, engine.ProfileDefault, engine.ProfileDeep, engine.ProfileFull} {
+		p := engine.ProfileFor(name)
+		note := ""
+		if name == engine.ProfileFull {
+			note = " (not a default; requires C16 stress evidence)"
+		}
+		if _, err := fmt.Fprintf(stdout, "%s\ttcp=%d\tudp=%d\tmax_probes=%d%s\n", p.Name, len(p.TCPPorts), len(p.UDPPorts), p.Budget.MaxProbesPerHost, note); err != nil {
+			fmt.Fprintf(stderr, "%v\n", err)
+			return 1
+		}
+	}
+	return 0
+}
+
+func runInfo(stdout, stderr io.Writer) int {
+	info := buildinfo.Current()
+	if _, err := fmt.Fprintf(stdout, "name=%s version=%s commit=%s go=%s corpus=%s\n", info.Name, info.Version, info.Commit, info.GoVersion, info.FingerprintCorpusID); err != nil {
+		fmt.Fprintf(stderr, "%v\n", err)
+		return 1
+	}
+	if _, err := fmt.Fprintf(stdout, "architecture=cmd/pingpp -> internal/cli -> pkg/runner.ScanRun -> pkg/scan.Session -> pkg/engine\n"); err != nil {
+		fmt.Fprintf(stderr, "%v\n", err)
+		return 1
+	}
+	if _, err := fmt.Fprintf(stdout, "formats=text,json,jsonl\nprofiles=quick,default,deep,full\n"); err != nil {
 		fmt.Fprintf(stderr, "%v\n", err)
 		return 1
 	}

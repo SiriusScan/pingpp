@@ -10,7 +10,8 @@ import (
 // ScanOptions wraps engine.Options for the production scan entrypoint.
 type ScanOptions struct {
 	engine.Options
-	Timeout         time.Duration
+	Timeout time.Duration
+	// UseLegacyRunner is ignored. scan.Scan always uses Session → Engine.
 	UseLegacyRunner bool
 }
 

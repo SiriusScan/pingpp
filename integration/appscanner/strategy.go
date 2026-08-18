@@ -26,7 +26,8 @@ type PingPlusPlusStrategy struct {
 	ProbeTypes      []string
 	Timeout         time.Duration
 	DisableICMP     bool
-	UseLegacyRunner bool
+	UseLegacyRunner bool // rollback-only: Engine path is default; remove after Sirius is stable
+
 }
 
 // NewStrategy creates a strategy with defaults.
@@ -81,6 +82,7 @@ func (p *PingPlusPlusStrategy) fingerprintEngine(target string) (FingerprintResu
 }
 
 func (p *PingPlusPlusStrategy) fingerprintLegacyRunner(target string) (FingerprintResult, error) {
+	// Deprecated rollback path. Do not add features here. Remove with UseLegacyRunner.
 	result := FingerprintResult{Details: make(map[string]string)}
 	opts := runner.DefaultOptions()
 	opts.Targets = []string{target}

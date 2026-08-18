@@ -201,3 +201,58 @@ func TestScanRunCancel(t *testing.T) {
 		t.Fatalf("err=%v", err)
 	}
 }
+
+func TestScanRunManyTargetsBoundedAndCancel(t *testing.T) {
+	targets := make([]string, 80)
+	for i := range targets {
+		targets[i] = fmt.Sprintf("192.0.2.%d", i+1)
+	}
+	src, err := runner.NewTargetSource(runner.WithTargets(targets...))
+	if err != nil {
+		t.Fatal(err)
+	}
+	scan := &runner.ConcurrentScanner{Delay: 5 * time.Millisecond}
+	run, err := runner.NewScanRun(runner.ScanRunOptions{
+		Scanner:         scan,
+		Targets:         src,
+		HostConcurrency: 8,
+		Sink:            runner.NopSink{},
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	sum, err := run.Run(context.Background())
+	if err != nil {
+		t.Fatal(err)
+	}
+	if sum.Targets != 80 || sum.Completed != 80 {
+		t.Fatalf("summary=%+v", sum)
+	}
+	if scan.Peak > 8 {
+		t.Fatalf("peak=%d", scan.Peak)
+	}
+
+	src2, err := runner.NewTargetSource(runner.WithTargets(targets...))
+	if err != nil {
+		t.Fatal(err)
+	}
+	ctx, cancel := context.WithCancel(context.Background())
+	slow := &runner.ConcurrentScanner{Delay: 200 * time.Millisecond}
+	run2, err := runner.NewScanRun(runner.ScanRunOptions{
+		Scanner:         slow,
+		Targets:         src2,
+		HostConcurrency: 8,
+		Sink:            runner.NopSink{},
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	go func() {
+		time.Sleep(20 * time.Millisecond)
+		cancel()
+	}()
+	_, err = run2.Run(ctx)
+	if err != nil && !errors.Is(err, context.Canceled) {
+		t.Fatalf("cancel err=%v", err)
+	}
+}

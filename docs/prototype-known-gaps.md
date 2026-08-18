@@ -11,7 +11,7 @@ After each R-stage commit, edit that stage in place:
 
 ```text
 R<n> <title>
-Status: COMPLETE | PARTIAL | NOT STARTED
+Status: COMPLETE | DEFERRED | REMOVED
 Commit: <short sha> <subject>
 Acceptance tests:
 - <TestName> — what it actually proves
@@ -37,9 +37,11 @@ Reviewed prototype commit: `bfef5cb`.
 
 ## Current head
 
-This commit (`ccab9cb`) — deterministic A/AAAA order and de-duplication,
-dead-address fairness, and HTTP/TLS evidence that distinguishes logical
-host from the pinned transport IP (Host + SNI stay on the hostname).
+This tree — production-ready ping++ correctness for Sirius integration:
+HTTP apex/www redirect split, scheduler terminal dispositions, host-wide
+transport concurrency, IPv6 outcome matrix, monotonic `Endpoint.Execution`,
+fingerprint normalization, Engine-path Sirius adapter, Runner C14–C16,
+budget/meter sweep, NOTICE, and architecture doc.
 
 Canonical path:
 
@@ -95,7 +97,7 @@ Acceptance tests:
 - `TestNoProductClaimsInCollectorOutput` — collectors do not emit product claims
 
 Known debt:
-- Sirius adapter still has a legacy runner path behind `UseLegacyRunner` (R16)
+- DEFERRED: `UseLegacyRunner` remains as a rollback switch only. Remove after Sirius has run the Engine path in production. No features are added to the legacy probe loop.
 
 ---
 
@@ -134,11 +136,9 @@ Acceptance tests:
 - `TestMeterRespectsByteBudget` — `MaxBytesPerHost` / meter `MaxBytes` blocks further dials
 
 Known debt:
-- SNMP still self-dials inside `gosnmp.Connect`; the scan meter reserves the op with `CountDial` and wraps the resulting conn for bytes. The library socket is not `DialUDP`.
-- ICMP discovery uses `CountDial`, not wrapped pinger I/O, so ICMP payload bytes are not counted.
-- Legacy `pkg/probes/*` still dial on their own (not on the Engine path).
-- Unregistered `collect.tcpstack` still uses `net.Dialer`.
-- SMB now dials through the scan meter via `ProxyDialer`; the go-smb library still owns the protocol framing.
+- DEFERRED: ICMP echo payload bytes are estimated (64 bytes × packets) because pro-bing owns the socket. SNMP now uses `DialUDP` + wrapped conn for real payload bytes.
+- DEFERRED: Legacy `pkg/probes/*` still dial on their own (not on the Engine path; rollback-only).
+- DEFERRED: Unregistered `collect.tcpstack` still uses `net.Dialer` (not in the production registry).
 
 ---
 
@@ -219,13 +219,15 @@ Commit: `4557bd6` HTTP scheme, redirects, body artifacts, favicon hashes; this c
 
 Acceptance tests:
 - `TestHTTPSameHostRedirectAndCrossHostStop` — same-host follows; cross-host records `Location` and stops
+- `TestHTTPApexDoesNotFollowWWWRedirectOnPinnedIP` — `example.com` → `www.example.com` is recorded, not followed on the pinned IP
+- `TestHTTPSameHostRedirectStaysOnPinnedIP` — relative same-host redirects stay on the selected address
+- `TestHTTPCollectorPinsTransportIPAndHostHeader` / `TestHTTPCollectorPinsTLSSNIToLogicalHost`
 - `TestHTTPBodyArtifactAndTruncation` — truncated flag + artifact id (270 KiB body vs 256 KiB cap)
 - `TestHTTPFaviconHashes` — SHA-256 (and MMH3) on favicon bytes
 - `TestTLSCollectorCapturesCert` / `TestTLSCollectorNoMatchOnPlaintext`
 
 Known debt:
 - extra same-host URLs beyond favicon/robots are enrichment (`collect.http.enrich`), not the default GET
-- `www.` and apex hostnames are treated as the same host for redirect following; a dedicated canonical-host fixture is not in testdata
 
 ---
 
@@ -334,6 +336,8 @@ Acceptance tests:
 - `TestStrongExactYAMLRulesHaveNegativeFixtures` — strong/exact YAML claims need a negative tied to rule id or product+observation type (vendor-only is not enough)
 - `TestHTTPBodyArtifactAndTruncation` — 256 KiB cap
 - `TestHTTPApplicationPack` — title-only Grafana/Jenkins still match (now hint); server headers remain strong/exact
+- `TestCanonicalProductAliases` / `TestCanonicalVersionForms` / `TestNormalizeObservationIdempotent`
+- `TestNormalizeDoesNotCollapseContradictions` / `TestUnknownServiceStaysUnknown` / `TestIISAliasStillMatches`
 
 Known debt:
 - Title-only rules are hints; distinctive favicon+title combined rules are still sparse.
@@ -343,18 +347,18 @@ Known debt:
 
 ## R16 Sirius adapter / ScanOptions
 
-Status: COMPLETE for Engine-path option semantics
-
-Commit: `9403a4d` ScanOptions; this commit maps `DisableICMP` → `SkipICMP` and honors `ProbeTypes`
+Status: COMPLETE for Engine-path option semantics and adapter e2e ingest
 
 Acceptance tests:
 - `TestScanOptionsWrapsEngineOptions` — one options type wrapping `engine.Options`; `SkipICMP` does not imply `SkipDiscovery`; `ProbeTypes` is carried
 - `TestSkipICMPKeepsTCPDiscovery` — ICMP off leaves `discovery.tcp`
 - `TestProbeTypesFilterCollectors` — `icmp,tcp` does not enable `collect.ssh`/`collect.http`
+- `TestStrategyDefaultsToEnginePath` — `UseLegacyRunner` defaults false
+- `TestAdapterEngineSessionToSiriusHost` — Session/Engine scan maps into Sirius host fields
 
 Known debt:
-- `fingerprintLegacyRunner` remains behind `UseLegacyRunner` only.
-- `runner.Options` / `engine.Options` / Profile remain separate vocabularies.
+- DEFERRED: `fingerprintLegacyRunner` remains behind `UseLegacyRunner` as rollback only; remove after Sirius production cutover.
+- DEFERRED: `runner.Options` / `engine.Options` / Profile remain separate vocabularies on the legacy path only.
 - Sirius `ProbeTypes` stay a private `scan.Config` compatibility field; they are
   not part of the public Config API. Profiles are the supported selector.
 
@@ -362,14 +366,9 @@ Known debt:
 
 ## R17 IPv6 / multi-address
 
-Status: COMPLETE for shared logical-scan budget, merged protocol state,
-stage-fair multi-address execution, deterministic address order, and HTTP
-pinned-IP vs Host/SNI
+Status: COMPLETE
 
-Commit: `ccab9cb` — ResolveTarget/ScanResolved de-duplicate and order
-IPv4 then IPv6; HTTP DialContext is pinned to `Endpoint.Address` while the
-request URL/Host and TLS SNI use the logical hostname; observation payloads
-record `logical_host` / `transport_ip`
+Commit: this tree — host-wide I/O limiter, IPv6 outcome matrix, apex/www redirect split
 
 Acceptance tests:
 - `TestScanResolvedAllAddresses` — two resolved IPs both appear; hostname preserved; per-address complete keys
@@ -382,17 +381,23 @@ Acceptance tests:
 - `TestHTTPCollectorPinsTLSSNIToLogicalHost` — HTTPS SNI is the hostname while the TCP peer is the pinned IP
 - `TestHTTPSameHostRedirectStaysOnPinnedIP` — same-host redirects do not re-resolve DNS
 - `TestTLSCollectorPinsUnresolvableLogicalHost` — TLS dials `Endpoint.Address` with SNI = hostname
+- `TestScanResolvedIPv6OutcomeMatrix` — refused vs timeout vs live IPv6 sibling; negative answers stay `attempted`
+- `TestScanResolvedBudgetSkipDistinctFromNegativeAnswer` — exhausted budget does not probe the sibling; the sibling address is still retained
+- `TestHostLimiterBoundsInFlightDials` / `TestTwoHostsUseIndependentLimiters`
 - `TestConfigFromScanOptionsPreservesProbeTypes` — Sirius `icmp,tcp` still filters protocol collectors through `scan.Config`
 
 Known debt:
-- True target-wide `MaxConcurrentPerHost` at transport I/O is still scheduler-task scoped.
-- IPv6 filtered vs budget-starved vs no-route still needs a dedicated matrix beyond the fairness unit test.
+- none required for production multi-address/HTTP pinning. OS-perfect ICMP/TCP error taxonomy is not claimed.
 
 ---
 
 ## R18 Metrics, unknowns, hardening
 
-Status: COMPLETE for STARTTLS-era remaining R18 bars (sink + corpus timings); packaging NOTICE and R5 byte metering stay debt
+Status: COMPLETE
+
+Commit: this tree — NOTICE aggregation; SNMP DialUDP; ICMP estimated echo bytes
+
+Acceptance tests:
 
 Commit: `9403a4d` runtime counters; prior commit repaired metric semantics; this commit adds a JSONL unmatched-banner sink and a builtin-corpus timing suite
 
@@ -406,8 +411,8 @@ Acceptance tests:
 - `TestBuiltinCorpusMatchBudget` / `BenchmarkBuiltinCorpusMatch` / `BenchmarkLoadBuiltinPacks` — live Recog/Wappalyzer/YAML corpus timings, claim counts must not collapse
 
 Known debt:
-- Embedded Recog/Wappalyzer license notices live under `fingerprints/`; a packaging NOTICE aggregation is not automated.
-- SNMP/ICMP payload bytes remain incompletely metered (R5).
+- DEFERRED: ICMP payload bytes remain an estimate (64 × packets) because pro-bing owns the socket.
+- Title-only fingerprint rules remain hints (R15).
 
 ---
 
@@ -415,14 +420,17 @@ Known debt:
 
 Engine R1–R18 stays the scanning intelligence. Production `cmd/pingpp` is a
 thin CLI over Runner V2 (`pkg/runner.ScanRun`) → `scan.Session` → engine.
-C9–C12 landed on this branch (`scan`, `version`, text/json/jsonl). Do not
-grow legacy `pkg/runner.Result`. C13 exit-code/run-error work landed with
-this commit; C14–C16 (introspection commands, README rewrite, full-profile
-stress) remain.
+C9–C16 are complete on this branch: scan/version/collectors/profiles/info,
+text/json/jsonl, typed exit codes, README, bounded many-target stress.
+`--profile full` is still not a default. Do not grow legacy `pkg/runner.Result`.
 
-Endpoint `Execution` distinguishes attempted vs `not_attempted_budget` /
-`not_attempted_cancelled` / `timed_out` so a budget stop is not network
-`unknown`. Default text now prints responsive unclassified endpoints.
+Endpoint `Execution` is monotonic (`attempted` > `timed_out` > not-attempted).
+Observed `EndpointState` stays independent. Default text prints responsive
+unclassified endpoints.
+
+C14 tests: `TestInfoAndCollectors`, `TestVersion`
+C15: `README.md`, `docs/architecture.md`
+C16: `TestScanRunManyTargetsBoundedAndCancel` (not a 65,535-port live scan)
 
 ---
 

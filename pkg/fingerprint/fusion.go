@@ -19,7 +19,10 @@ type claimIdentity struct {
 }
 
 func identityOf(c model.Claim) claimIdentity {
-	product := strings.ToLower(strings.TrimSpace(c.Product))
+	product := CanonicalProduct(c.Product)
+	if product == "" {
+		product = strings.ToLower(strings.TrimSpace(c.Product))
+	}
 	value := strings.ToLower(strings.TrimSpace(c.Value))
 	if value == product {
 		value = ""
@@ -120,7 +123,10 @@ func combineGroup(list []model.Claim) model.Claim {
 func splitVersions(combined model.Claim, list []model.Claim) []model.Claim {
 	bestVer := map[string]model.Claim{}
 	for _, c := range list {
-		v := strings.TrimSpace(c.Version)
+		v := CanonicalVersion(c.Version)
+		if v == "" {
+			v = strings.TrimSpace(c.Version)
+		}
 		if v == "" {
 			continue
 		}

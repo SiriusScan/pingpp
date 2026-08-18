@@ -158,7 +158,7 @@ Tasks:
 - [x] `pingpp.scan/v1` + text/json/jsonl
 - [x] `cmd/pingpp` scan + version
 - [x] Signals, exit codes (input/config 2, run timeout 1, SIGINT 130, NXDOMAIN 0, `scan --help` 0)
-- [ ] Introspection commands
+- [x] Introspection commands
 
 ## Stage 6: Legacy + release (C15–C16)
 
@@ -170,9 +170,10 @@ Owned paths:
 
 Tasks:
 
-- [ ] Quarantine old runner; new CLI never calls it
-- [ ] README rewrite
-- [ ] Benchmarks and full-profile stress behind the human gate
+- [x] Quarantine old runner; new CLI never calls it
+- [x] README rewrite
+- [x] Many-target/cancel Runner stress (`TestScanRunManyTargetsBoundedAndCancel`)
+- DEFERRED: live `--profile full` 1–65535 scan remains a human gate and is not a default
 
 ## Current handoff
 

@@ -455,25 +455,24 @@ func NewRateLimiter(ratePerSecond int) *RateLimiter {
 	}
 }
 
-// Wait blocks until a token is available or ctx is done.
+// Wait blocks until a token is available or done is closed.
 func (r *RateLimiter) Wait(done <-chan struct{}) bool {
-	r.mu.Lock()
-	defer r.mu.Unlock()
-	now := time.Now()
-	if r.last.IsZero() {
-		r.last = now
-		return true
-	}
-	next := r.last.Add(r.interval)
-	if now.Before(next) {
-		timer := time.NewTimer(next.Sub(now))
-		defer timer.Stop()
+	for {
+		r.mu.Lock()
+		now := time.Now()
+		if r.last.IsZero() || !now.Before(r.last.Add(r.interval)) {
+			r.last = now
+			r.mu.Unlock()
+			return true
+		}
+		wait := r.last.Add(r.interval).Sub(now)
+		r.mu.Unlock()
+		timer := time.NewTimer(wait)
 		select {
 		case <-done:
+			timer.Stop()
 			return false
 		case <-timer.C:
 		}
 	}
-	r.last = time.Now()
-	return true
 }

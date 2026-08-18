@@ -9,6 +9,7 @@ import (
 	"crypto/x509"
 	"crypto/x509/pkix"
 	"encoding/pem"
+	"fmt"
 	"math/big"
 	"net"
 	"net/http"
@@ -187,6 +188,64 @@ func TestHTTPSameHostRedirectStaysOnPinnedIP(t *testing.T) {
 	if hits.Load() < 2 {
 		t.Fatalf("redirect did not stay on pinned listener, hits=%d", hits.Load())
 	}
+}
+
+func TestHTTPApexDoesNotFollowWWWRedirectOnPinnedIP(t *testing.T) {
+	var followedWWW atomic.Int32
+	ln, err := net.Listen("tcp", "127.0.0.1:0")
+	if err != nil {
+		t.Fatal(err)
+	}
+	port := uint16(ln.Addr().(*net.TCPAddr).Port)
+	mux := http.NewServeMux()
+	mux.HandleFunc("/", func(w http.ResponseWriter, r *http.Request) {
+		http.Redirect(w, r, fmt.Sprintf("http://www.example.com:%d/www", port), http.StatusFound)
+	})
+	mux.HandleFunc("/www", func(w http.ResponseWriter, r *http.Request) {
+		followedWWW.Add(1)
+		_, _ = w.Write([]byte("<title>followed-www</title>"))
+	})
+	srv := &http.Server{Handler: mux}
+	go func() { _ = srv.Serve(ln) }()
+	t.Cleanup(func() { _ = srv.Close(); _ = ln.Close() })
+
+	c, _ := httpcol.New(engine.Config{Timeout: time.Second})
+	ep := model.NewEndpoint("127.0.0.1", port, model.TransportTCP, model.EndpointOpen)
+	res, err := c.RunResult(context.Background(), engine.CollectorInput{
+		Endpoint: &ep,
+		Target:   &model.Target{Hostname: "example.com"},
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	var p model.HTTPObservation
+	if err := res.Observations[0].DecodePayload(&p); err != nil {
+		t.Fatal(err)
+	}
+	if followedWWW.Load() != 0 {
+		t.Fatalf("followed www on pinned IP; chain=%+v", p.RedirectChain)
+	}
+	if p.Title == "followed-www" {
+		t.Fatal("apex→www redirect was followed")
+	}
+	if p.StatusCode != http.StatusFound {
+		t.Fatalf("status=%d want 302, chain=%+v", p.StatusCode, p.RedirectChain)
+	}
+	if !strings.Contains(p.Location, "www.example.com") && !redirectChainContains(p.RedirectChain, "www.example.com") {
+		t.Fatalf("cross-host redirect not recorded: location=%q chain=%+v", p.Location, p.RedirectChain)
+	}
+	if p.TransportIP != "127.0.0.1" || p.LogicalHost != "example.com" {
+		t.Fatalf("attribution logical=%q transport=%q", p.LogicalHost, p.TransportIP)
+	}
+}
+
+func redirectChainContains(chain []model.Redirect, host string) bool {
+	for _, hop := range chain {
+		if strings.Contains(hop.Location, host) || strings.Contains(hop.URL, host) {
+			return true
+		}
+	}
+	return false
 }
 
 func mustSelfSignedHTTP(t *testing.T, cn string) (certPEM, keyPEM []byte) {

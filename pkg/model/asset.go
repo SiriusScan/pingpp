@@ -77,18 +77,10 @@ func (a *Asset) AddEndpoint(ep Endpoint) {
 }
 
 func mergeEndpointExecution(dst *Endpoint, incoming EndpointExecution) {
-	if dst == nil || incoming == "" {
+	if dst == nil {
 		return
 	}
-	switch dst.Execution {
-	case ExecutionAttempted, ExecutionTimedOut:
-		if incoming == ExecutionTimedOut {
-			dst.Execution = incoming
-		}
-		return
-	default:
-		dst.Execution = incoming
-	}
+	dst.Execution = MergeExecution(dst.Execution, incoming)
 }
 
 // AddObservation appends an observation record.

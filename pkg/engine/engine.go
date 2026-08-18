@@ -266,6 +266,7 @@ func (e *Engine) ScanResolved(ctx context.Context, target model.Target) (*ScanRe
 		return nil, fmt.Errorf("no addresses for %q", target.Input)
 	}
 	logicalID := "asset:" + target.Input
+	ctx = e.withHostLimit(ctx)
 	if len(addrs) == 1 {
 		return e.scanAddress(ctx, target, addrs[0], nil)
 	}
@@ -341,6 +342,16 @@ func (e *Engine) ScanResolved(ctx context.Context, target model.Target) (*ScanRe
 	return &ScanResult{Asset: merged, State: shared}, nil
 }
 
+func (e *Engine) withHostLimit(ctx context.Context) context.Context {
+	if e == nil {
+		return ctx
+	}
+	if transport.ContextHostLimiter(ctx) != nil {
+		return ctx
+	}
+	return transport.WithHostLimiter(ctx, transport.NewHostLimiter(e.profile.Budget.MaxConcurrentPerHost))
+}
+
 func (e *Engine) newScanState(assetID string) *ScanState {
 	return &ScanState{
 		AssetID:      assetID,
@@ -401,18 +412,10 @@ func (e *Engine) scanAddress(ctx context.Context, target model.Target, addr mode
 }
 
 func setEndpointExecution(ep *model.Endpoint, exec model.EndpointExecution) {
-	if ep == nil || exec == "" {
+	if ep == nil {
 		return
 	}
-	switch ep.Execution {
-	case model.ExecutionAttempted, model.ExecutionTimedOut:
-		if exec == model.ExecutionTimedOut {
-			ep.Execution = exec
-		}
-		return
-	default:
-		ep.Execution = exec
-	}
+	ep.Execution = model.MergeExecution(ep.Execution, exec)
 }
 
 func (e *Engine) markEndpointExecution(ctx context.Context, asset *model.Asset, state *ScanState) {
@@ -431,7 +434,7 @@ func (e *Engine) markEndpointExecution(ctx context.Context, asset *model.Asset, 
 			ep.Execution = model.ExecutionTimedOut
 		case ctx.Err() != nil:
 			ep.Execution = model.ExecutionNotAttemptedCancelled
-		case classified, ep.State == model.EndpointOpen, ep.State == model.EndpointClosed, ep.State == model.EndpointFiltered:
+		case classified, ep.State == model.EndpointOpen, ep.State == model.EndpointClosed, ep.State == model.EndpointFiltered, ep.State == model.EndpointResponsive:
 			ep.Execution = model.ExecutionAttempted
 		case !budgetLeft && classifiableEndpoint(ep):
 			ep.Execution = model.ExecutionNotAttemptedBudget
@@ -539,8 +542,26 @@ func (e *Engine) runTasks(ctx context.Context, tasks []Task, asset *model.Asset,
 		return tasks[i].Priority > tasks[j].Priority
 	})
 	return e.scheduler.RunAll(ctx, tasks, func(ctx context.Context, task Task) error {
-		if !e.budgetRemaining(state) {
+		e.mu.Lock()
+		if err := ctx.Err(); err != nil {
+			exec := model.ExecutionNotAttemptedCancelled
+			if errors.Is(err, context.DeadlineExceeded) {
+				exec = model.ExecutionTimedOut
+			}
+			setEndpointExecution(task.Endpoint, exec)
+			e.mu.Unlock()
+			return err
+		}
+		e.syncMeterLocked(state)
+		remain := true
+		if state != nil {
+			remain = state.Budget.Remaining()
+		}
+		e.mu.Unlock()
+		if !remain {
+			e.mu.Lock()
 			setEndpointExecution(task.Endpoint, model.ExecutionNotAttemptedBudget)
+			e.mu.Unlock()
 			return nil
 		}
 		err := e.runTask(ctx, task, asset, state)
@@ -609,6 +630,15 @@ func (e *Engine) runTask(ctx context.Context, task Task, asset *model.Asset, sta
 
 	e.mu.Lock()
 	e.syncMeterLocked(state)
+	if err := ctx.Err(); err != nil {
+		exec := model.ExecutionNotAttemptedCancelled
+		if errors.Is(err, context.DeadlineExceeded) {
+			exec = model.ExecutionTimedOut
+		}
+		setEndpointExecution(task.Endpoint, exec)
+		e.mu.Unlock()
+		return err
+	}
 	if !state.Budget.Remaining() {
 		e.mu.Unlock()
 		setEndpointExecution(task.Endpoint, model.ExecutionNotAttemptedBudget)
@@ -631,9 +661,8 @@ func (e *Engine) runTask(ctx context.Context, task Task, asset *model.Asset, sta
 		switch {
 		case errors.Is(ctx.Err(), context.DeadlineExceeded) || result.Outcome == OutcomeTimeout:
 			setEndpointExecution(task.Endpoint, model.ExecutionTimedOut)
-		case errors.Is(ctx.Err(), context.Canceled):
-			setEndpointExecution(task.Endpoint, model.ExecutionNotAttemptedCancelled)
 		default:
+			// In-flight cancellation is still attempted: the collector ran.
 			setEndpointExecution(task.Endpoint, model.ExecutionAttempted)
 		}
 	}
@@ -1021,6 +1050,10 @@ func NewScheduler(ratePerSecond, perHostWorkers int) *Scheduler {
 }
 
 // RunAll executes tasks with bounded concurrency.
+// Every supplied task is passed to fn exactly once. Tasks that never start
+// (cancel before a worker slot, or cancel while waiting on the rate limiter)
+// still invoke fn so the caller can record a terminal disposition.
+// If ctx is cancelled, the returned error is never nil.
 func (s *Scheduler) RunAll(ctx context.Context, tasks []Task, fn func(context.Context, Task) error) error {
 	if len(tasks) == 0 {
 		return nil
@@ -1029,31 +1062,54 @@ func (s *Scheduler) RunAll(ctx context.Context, tasks []Task, fn func(context.Co
 	var wg sync.WaitGroup
 	var mu sync.Mutex
 	var firstErr error
+	setErr := func(err error) {
+		if err == nil {
+			return
+		}
+		mu.Lock()
+		if firstErr == nil {
+			firstErr = err
+		}
+		mu.Unlock()
+	}
 
-	for _, task := range tasks {
-		task := task
+	i := 0
+	for i < len(tasks) {
+		if ctx.Err() != nil {
+			break
+		}
 		select {
 		case <-ctx.Done():
-			wg.Wait()
-			return ctx.Err()
+			// fall through to leftover fn calls
 		case sem <- struct{}{}:
-		}
-		wg.Add(1)
-		go func() {
-			defer wg.Done()
-			defer func() { <-sem }()
-			if !s.limiter.Wait(ctx.Done()) {
-				return
-			}
-			if err := fn(ctx, task); err != nil {
-				mu.Lock()
-				if firstErr == nil {
-					firstErr = err
+			task := tasks[i]
+			i++
+			wg.Add(1)
+			go func() {
+				defer wg.Done()
+				defer func() { <-sem }()
+				if ctx.Err() != nil {
+					setErr(fn(ctx, task))
+					return
 				}
-				mu.Unlock()
-			}
-		}()
+				if !s.limiter.Wait(ctx.Done()) {
+					setErr(fn(ctx, task))
+					return
+				}
+				setErr(fn(ctx, task))
+			}()
+			continue
+		}
+		break
 	}
 	wg.Wait()
+	for _, task := range tasks[i:] {
+		setErr(fn(ctx, task))
+	}
+	if firstErr == nil {
+		if err := ctx.Err(); err != nil {
+			return err
+		}
+	}
 	return firstErr
 }

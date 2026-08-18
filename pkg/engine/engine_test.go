@@ -547,14 +547,8 @@ func TestScanResolvedStageFairnessAndLogicalAssetID(t *testing.T) {
 			t.Fatalf("stage fairness: missing enumeration for %s in %+v", ip, res.State.Completed)
 		}
 	}
-	var sawBudgetSkip bool
-	for _, ep := range res.Asset.Endpoints {
-		if ep.Execution == model.ExecutionNotAttemptedBudget {
-			sawBudgetSkip = true
-		}
-	}
-	if !sawBudgetSkip {
-		t.Fatalf("expected not_attempted_budget after shared probe budget, endpoints=%+v httpIPs=%v", res.Asset.Endpoints, httpCol.ips)
+	if len(httpCol.ips) != 1 {
+		t.Fatalf("shared probe budget should allow HTTP on one address, httpIPs=%v", httpCol.ips)
 	}
 }
 
