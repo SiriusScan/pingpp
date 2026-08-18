@@ -111,10 +111,10 @@ func (p *Probe) Probe(ctx context.Context, target string) (probes.ProbeResult, e
 		result.Error = err.Error()
 		return result, nil
 	}
-	defer conn.Close()
+	defer func() { _ = conn.Close() }()
 
 	// Set read deadline
-	conn.SetReadDeadline(time.Now().Add(p.timeout))
+	_ = conn.SetReadDeadline(time.Now().Add(p.timeout))
 
 	// Read the SSH banner (first line)
 	reader := bufio.NewReader(conn)

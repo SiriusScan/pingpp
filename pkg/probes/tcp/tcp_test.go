@@ -14,13 +14,13 @@ func TestTCPProbeEnumeratesAllOpenPorts(t *testing.T) {
 	if err != nil {
 		t.Fatalf("listen 1: %v", err)
 	}
-	defer ln1.Close()
+	defer func() { _ = ln1.Close() }()
 
 	ln2, err := net.Listen("tcp", "127.0.0.1:0")
 	if err != nil {
 		t.Fatalf("listen 2: %v", err)
 	}
-	defer ln2.Close()
+	defer func() { _ = ln2.Close() }()
 
 	port1 := ln1.Addr().(*net.TCPAddr).Port
 	port2 := ln2.Addr().(*net.TCPAddr).Port
@@ -56,7 +56,7 @@ func TestTCPProbeDoesNotSetTTL(t *testing.T) {
 	if err != nil {
 		t.Fatalf("listen: %v", err)
 	}
-	defer ln.Close()
+	defer func() { _ = ln.Close() }()
 	go acceptLoop(ln)
 
 	port := ln.Addr().(*net.TCPAddr).Port
@@ -80,13 +80,13 @@ func TestTCPProbeRecordsClosedPorts(t *testing.T) {
 		t.Fatalf("listen: %v", err)
 	}
 	closedPort := ln.Addr().(*net.TCPAddr).Port
-	ln.Close()
+	_ = ln.Close()
 
 	openLn, err := net.Listen("tcp", "127.0.0.1:0")
 	if err != nil {
 		t.Fatalf("listen open: %v", err)
 	}
-	defer openLn.Close()
+	defer func() { _ = openLn.Close() }()
 	go acceptLoop(openLn)
 	openPort := openLn.Addr().(*net.TCPAddr).Port
 
@@ -115,7 +115,7 @@ func TestTCPProbeAllClosedIsNotSuccess(t *testing.T) {
 		t.Fatalf("listen: %v", err)
 	}
 	port := ln.Addr().(*net.TCPAddr).Port
-	ln.Close()
+	_ = ln.Close()
 
 	probe := New([]int{port}, time.Second)
 	result, err := probe.Probe(context.Background(), "127.0.0.1")

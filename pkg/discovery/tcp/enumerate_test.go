@@ -15,7 +15,7 @@ func TestEnumerateAllRequestedPorts(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	defer openLn.Close()
+	defer func() { _ = openLn.Close() }()
 	go func() {
 		for {
 			c, err := openLn.Accept()
@@ -32,7 +32,7 @@ func TestEnumerateAllRequestedPorts(t *testing.T) {
 		t.Fatal(err)
 	}
 	closedPort := uint16(closedLn.Addr().(*net.TCPAddr).Port)
-	closedLn.Close()
+	_ = closedLn.Close()
 
 	c, err := NewEnumerate(engine.Config{
 		Timeout: 400 * time.Millisecond,

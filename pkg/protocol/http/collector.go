@@ -124,7 +124,7 @@ func (c *Collector) Run(ctx context.Context, in engine.CollectorInput) ([]model.
 		obs.Completeness = "none"
 		return []model.ObservationRecord{obs}, nil
 	}
-	defer resp.Body.Close()
+	defer func() { _ = resp.Body.Close() }()
 
 	body, _ := io.ReadAll(io.LimitReader(resp.Body, maxBody))
 	payload := buildHTTPObservation(url, resp, body)

@@ -16,7 +16,7 @@ import (
 
 func TestFTPBanner(t *testing.T) {
 	ln := serveLines(t, []string{"220 Welcome to ftp.example\r\n"})
-	defer ln.Close()
+	defer func() { _ = ln.Close() }()
 	port := uint16(ln.Addr().(*net.TCPAddr).Port)
 	c, _ := ftp.New(engine.Config{Timeout: time.Second})
 	ep := model.NewEndpoint("127.0.0.1", port, model.TransportTCP, model.EndpointOpen)
@@ -38,7 +38,7 @@ func TestSMTPEHLOFeatures(t *testing.T) {
 		"250-STARTTLS\r\n",
 		"250 SIZE 10240000\r\n",
 	})
-	defer ln.Close()
+	defer func() { _ = ln.Close() }()
 	port := uint16(ln.Addr().(*net.TCPAddr).Port)
 	c, _ := smtp.New(engine.Config{Timeout: time.Second})
 	ep := model.NewEndpoint("127.0.0.1", port, model.TransportTCP, model.EndpointOpen)
@@ -73,7 +73,7 @@ func serveLines(t *testing.T, lines []string) net.Listener {
 		if err != nil {
 			return
 		}
-		defer c.Close()
+		defer func() { _ = c.Close() }()
 		_, _ = c.Write([]byte(lines[0]))
 		if len(lines) > 1 {
 			br := bufio.NewReader(c)

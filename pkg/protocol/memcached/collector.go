@@ -41,7 +41,7 @@ func (c *Collector) Run(ctx context.Context, in engine.CollectorInput) ([]model.
 		obs.Completeness = "none"
 		return []model.ObservationRecord{obs}, nil
 	}
-	defer conn.Close()
+	defer func() { _ = conn.Close() }()
 	_ = conn.SetDeadline(time.Now().Add(c.timeout))
 	_, _ = conn.Write([]byte("version\r\n"))
 	br := bufio.NewReader(conn)

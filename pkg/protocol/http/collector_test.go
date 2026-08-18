@@ -17,7 +17,7 @@ import (
 func TestHTTPCollectorGETObservation(t *testing.T) {
 	body := []byte(`<html><head><title>Grafana</title><meta name="generator" content="Grafana"><link rel="icon" href="/favicon.ico"></head><body>ok</body></html>`)
 	ln := startHTTP(t, body)
-	defer ln.Close()
+	defer func() { _ = ln.Close() }()
 	port := uint16(ln.Addr().(*net.TCPAddr).Port)
 
 	c, err := httpcol.New(engine.Config{Timeout: time.Second})
@@ -82,7 +82,7 @@ func startHTTP(t *testing.T, body []byte) net.Listener {
 		t.Fatal(err)
 	}
 	srv := &http.Server{Handler: mux}
-	go srv.Serve(ln)
+	go func() { _ = srv.Serve(ln) }()
 	t.Cleanup(func() { _ = srv.Close() })
 	return ln
 }

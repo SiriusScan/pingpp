@@ -42,7 +42,7 @@ func (c *Collector) Run(ctx context.Context, in engine.CollectorInput) ([]model.
 		obs.Completeness = "none"
 		return []model.ObservationRecord{obs}, nil
 	}
-	defer conn.Close()
+	defer func() { _ = conn.Close() }()
 	_ = conn.SetDeadline(time.Now().Add(c.timeout))
 	_, _ = conn.Write([]byte("*1\r\n$4\r\nPING\r\n"))
 	br := bufio.NewReader(conn)
@@ -53,7 +53,9 @@ func (c *Collector) Run(ctx context.Context, in engine.CollectorInput) ([]model.
 	infoHdr, _ := br.ReadString('\n')
 	if strings.HasPrefix(infoHdr, "$") {
 		var n int
-		fmt.Sscanf(infoHdr, "$%d", &n)
+		if _, err := fmt.Sscanf(infoHdr, "$%d", &n); err != nil {
+			n = 0
+		}
 		if n > 0 && n < 65536 {
 			buf := make([]byte, n+2)
 			_, _ = br.Read(buf)

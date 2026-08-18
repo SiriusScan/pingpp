@@ -17,13 +17,13 @@ func TestSSHCollectorBanner(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	defer ln.Close()
+	defer func() { _ = ln.Close() }()
 	go func() {
 		c, err := ln.Accept()
 		if err != nil {
 			return
 		}
-		defer c.Close()
+		defer func() { _ = c.Close() }()
 		_, _ = c.Write([]byte("SSH-2.0-OpenSSH_9.6\r\n"))
 		br := bufio.NewReader(c)
 		_, _ = br.ReadString('\n')

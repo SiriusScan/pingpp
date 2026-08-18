@@ -39,7 +39,7 @@ func (c *Collector) Run(ctx context.Context, in engine.CollectorInput) ([]model.
 		obs.Completeness = "none"
 		return []model.ObservationRecord{obs}, nil
 	}
-	defer conn.Close()
+	defer func() { _ = conn.Close() }()
 	_ = conn.SetDeadline(time.Now().Add(c.timeout))
 	// LDAP anonymous bind request (messageID=1)
 	bind := []byte{0x30, 0x0c, 0x02, 0x01, 0x01, 0x60, 0x07, 0x02, 0x01, 0x03, 0x04, 0x00, 0x80, 0x00}

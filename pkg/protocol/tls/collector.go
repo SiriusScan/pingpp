@@ -72,7 +72,7 @@ func (c *Collector) Run(ctx context.Context, in engine.CollectorInput) ([]model.
 		}
 		return []model.ObservationRecord{obs}, nil
 	}
-	defer conn.Close()
+	defer func() { _ = conn.Close() }()
 
 	state := conn.ConnectionState()
 	payload := model.TLSObservation{

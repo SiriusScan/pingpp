@@ -61,7 +61,7 @@ func (c *Collector) Run(ctx context.Context, in engine.CollectorInput) ([]model.
 		obs.Completeness = "none"
 		return []model.ObservationRecord{obs}, nil
 	}
-	defer conn.Close()
+	defer func() { _ = conn.Close() }()
 	_ = conn.SetDeadline(time.Now().Add(timeout))
 
 	reader := bufio.NewReader(conn)

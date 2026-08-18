@@ -38,7 +38,7 @@ func CollectBanner(ctx context.Context, in engine.CollectorInput, timeout time.D
 		obs.Completeness = "none"
 		return obs, nil
 	}
-	defer conn.Close()
+	defer func() { _ = conn.Close() }()
 	_ = conn.SetDeadline(time.Now().Add(timeout))
 	reader := bufio.NewReader(conn)
 	banner, _ := reader.ReadString('\n')

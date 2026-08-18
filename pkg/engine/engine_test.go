@@ -70,7 +70,7 @@ func TestEngineEnumerationPipeline(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	defer ln.Close()
+	defer func() { _ = ln.Close() }()
 	go func() {
 		for {
 			c, err := ln.Accept()
@@ -122,7 +122,7 @@ func TestProtocolConfirmPromotesEndpointOpen(t *testing.T) {
 	if err != nil {
 		t.Skipf("need 8080 for HTTP prior: %v", err)
 	}
-	defer ln.Close()
+	defer func() { _ = ln.Close() }()
 	go func() {
 		_ = http.Serve(ln, http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 			w.Header().Set("Server", "test-httpd")
@@ -168,7 +168,7 @@ func TestClassificationPassesHostnameTarget(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	defer ln.Close()
+	defer func() { _ = ln.Close() }()
 	go func() {
 		for {
 			c, err := ln.Accept()

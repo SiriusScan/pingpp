@@ -105,10 +105,7 @@ func (n *NativeWebTech) Match(observations []model.ObservationRecord) ([]model.C
 }
 
 func (r webRule) match(h model.HTTPObservation) bool {
-	ok := false
-	if r.title != nil && r.title.MatchString(h.Title) {
-		ok = true
-	}
+	ok := r.title != nil && r.title.MatchString(h.Title)
 	if r.body != nil && r.body.MatchString(fmt.Sprintf("%s %s", h.Title, h.MetaGenerator)) {
 		ok = true
 	}

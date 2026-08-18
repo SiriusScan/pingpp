@@ -21,7 +21,7 @@ import (
 
 func TestTLSCollectorCapturesCert(t *testing.T) {
 	ln, conf := startTLSServer(t)
-	defer ln.Close()
+	defer func() { _ = ln.Close() }()
 	port := uint16(ln.Addr().(*net.TCPAddr).Port)
 
 	c, err := tlscol.New(engine.Config{Timeout: time.Second})

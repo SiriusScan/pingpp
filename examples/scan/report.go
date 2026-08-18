@@ -67,7 +67,9 @@ func writeJSON(w io.Writer, docs []ScanDocument) error {
 func writeText(w io.Writer, docs []ScanDocument) error {
 	for i, doc := range docs {
 		if i > 0 {
-			fmt.Fprintln(w)
+			if _, err := fmt.Fprintln(w); err != nil {
+				return err
+			}
 		}
 		if _, err := fmt.Fprint(w, doc.Text()); err != nil {
 			return err
