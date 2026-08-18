@@ -19,7 +19,6 @@ import (
 	"time"
 
 	"github.com/SiriusScan/ping++/pkg/engine"
-	"github.com/SiriusScan/ping++/pkg/fingerprint"
 	"github.com/SiriusScan/ping++/pkg/scan"
 )
 
@@ -67,9 +66,6 @@ func main() {
 		os.Exit(1)
 	}
 
-	fp := fingerprint.NewEngine()
-	_ = fp.LoadBuiltinPacks(fingerprint.RepoFingerprintsRoot())
-
 	ctx, cancel := context.WithTimeout(context.Background(), *timeout)
 	defer cancel()
 
@@ -83,11 +79,6 @@ func main() {
 		if err != nil {
 			fmt.Fprintf(os.Stderr, "    skip: %v\n", err)
 			continue
-		}
-		claims := fp.Match(res.Asset.Observations)
-		claims = append(claims, fingerprint.FuseOS(claims)...)
-		for _, c := range claims {
-			res.Asset.AddClaim(c)
 		}
 		docs = append(docs, buildDocument(host, profile, res, time.Since(started)))
 	}

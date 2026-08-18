@@ -6,7 +6,6 @@ import (
 	"time"
 
 	"github.com/SiriusScan/ping++/pkg/engine"
-	"github.com/SiriusScan/ping++/pkg/fingerprint"
 	"github.com/SiriusScan/ping++/pkg/model"
 	"github.com/SiriusScan/ping++/pkg/output"
 	"github.com/SiriusScan/ping++/pkg/runner"
@@ -69,13 +68,6 @@ func (p *PingPlusPlusStrategy) fingerprintEngine(target string) (FingerprintResu
 	res, err := eng.ScanTarget(ctx, target)
 	if err != nil {
 		return result, err
-	}
-	fp := fingerprint.NewEngine()
-	_ = fp.LoadBuiltinPacks(fingerprint.RepoFingerprintsRoot())
-	claims := fp.Match(res.Asset.Observations)
-	claims = append(claims, fingerprint.FuseOS(claims)...)
-	for _, c := range claims {
-		res.Asset.AddClaim(c)
 	}
 	alive := res.State.Reachability.State == model.ReachabilityConfirmed ||
 		res.State.Reachability.State == model.ReachabilityProbable

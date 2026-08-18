@@ -159,6 +159,58 @@ func TestProtocolConfirmPromotesEndpointOpen(t *testing.T) {
 	}
 }
 
+func TestEngineOwnsFingerprints(t *testing.T) {
+	ln, err := net.Listen("tcp", "127.0.0.1:0")
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer func() { _ = ln.Close() }()
+	go func() {
+		for {
+			c, err := ln.Accept()
+			if err != nil {
+				return
+			}
+			_ = c.Close()
+		}
+	}()
+	port := uint16(ln.Addr().(*net.TCPAddr).Port)
+
+	reg := engine.BuildDefaultRegistry(icmp.Register, tcp.Register)
+	eng, err := engine.NewEngine(engine.Options{
+		Profile:       engine.ProfileQuick,
+		SkipDiscovery: true,
+		TCPPorts:      []uint16{port},
+		RatePerSecond: 1000,
+		Registry:      reg,
+		Fingerprints: stubMatcher{claims: []model.Claim{{
+			Kind: model.ClaimProduct, Product: "nginx", Score: 90,
+			Confidence: model.ConfidenceStrong,
+		}}},
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+	defer cancel()
+	res, err := eng.ScanTarget(ctx, "127.0.0.1")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(res.Asset.Observations) == 0 {
+		t.Fatal("expected enumeration observations")
+	}
+	found := false
+	for _, c := range res.Asset.Claims {
+		if c.Product == "nginx" {
+			found = true
+		}
+	}
+	if !found {
+		t.Fatalf("ScanTarget must attach matcher claims: claims=%+v obs=%d", res.Asset.Claims, len(res.Asset.Observations))
+	}
+}
+
 func TestClassificationPassesHostnameTarget(t *testing.T) {
 	addrs, err := net.DefaultResolver.LookupIPAddr(context.Background(), "localhost")
 	if err != nil || len(addrs) == 0 {
@@ -249,4 +301,12 @@ func (c *hostnameCaptureCollector) Run(ctx context.Context, in engine.CollectorI
 		*c.host = in.Target.Hostname
 	}
 	return nil, nil
+}
+
+type stubMatcher struct {
+	claims []model.Claim
+}
+
+func (s stubMatcher) Match([]model.ObservationRecord) []model.Claim {
+	return append([]model.Claim(nil), s.claims...)
 }

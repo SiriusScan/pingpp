@@ -12,6 +12,7 @@ import (
 	"sync"
 	"time"
 
+	"github.com/SiriusScan/ping++/pkg/artifact"
 	"github.com/SiriusScan/ping++/pkg/model"
 )
 
@@ -54,6 +55,9 @@ type CollectorInput struct {
 	State    *ScanState
 	// Timeout overrides the default when > 0.
 	Timeout time.Duration
+	// Artifacts is the scan-local evidence store. Collectors may persist
+	// raw bodies, banners, and certificates without embedding them in JSON.
+	Artifacts artifact.Store
 }
 
 // PrimaryIP returns the best IP to contact for this input.

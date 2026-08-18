@@ -86,3 +86,13 @@ func (c *Counters) Snapshot() map[string]float64 {
 	out["conflict_count"] = float64(c.ConflictCount)
 	return out
 }
+
+// RecordConflict increments the runtime conflict counter.
+func (c *Counters) RecordConflict() {
+	if c == nil {
+		return
+	}
+	c.mu.Lock()
+	defer c.mu.Unlock()
+	c.ConflictCount++
+}

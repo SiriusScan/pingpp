@@ -8,15 +8,27 @@ import (
 	"strings"
 	"sync"
 
+	"github.com/SiriusScan/ping++/pkg/artifact"
+	"github.com/SiriusScan/ping++/pkg/fingerprint"
+	"github.com/SiriusScan/ping++/pkg/metrics"
 	"github.com/SiriusScan/ping++/pkg/model"
 )
 
+// Matcher turns observations into fused claims.
+type Matcher interface {
+	Match([]model.ObservationRecord) []model.Claim
+}
+
 // Engine orchestrates staged scan execution via the planner and registry.
 type Engine struct {
-	registry *Registry
-	profile  Profile
-	planner  *Planner
-	limiter  *RateLimiter
+	registry     *Registry
+	profile      Profile
+	planner      *Planner
+	limiter      *RateLimiter
+	scheduler    *Scheduler
+	fingerprints Matcher
+	artifacts    artifact.Store
+	metrics      *metrics.Counters
 }
 
 // Options configures an Engine.
@@ -26,6 +38,14 @@ type Options struct {
 	TCPPorts      []uint16
 	RatePerSecond int
 	Registry      *Registry
+	// Fingerprints overrides the built-in fingerprint engine when set.
+	Fingerprints Matcher
+	// FingerprintDir loads extra YAML packs after built-ins.
+	FingerprintDir string
+	// Artifacts overrides the in-memory artifact store when set.
+	Artifacts artifact.Store
+	// Metrics overrides runtime counters when set.
+	Metrics *metrics.Counters
 }
 
 // NewEngine builds an engine with the given options and registry.
@@ -43,11 +63,36 @@ func NewEngine(opts Options) (*Engine, error) {
 	if opts.RatePerSecond > 0 {
 		profile.Budget.RatePerSecond = opts.RatePerSecond
 	}
+	fp := opts.Fingerprints
+	if fp == nil {
+		eng := fingerprint.NewEngine()
+		if err := eng.LoadBuiltinPacks(fingerprint.RepoFingerprintsRoot()); err != nil {
+			return nil, fmt.Errorf("load builtin fingerprints: %w", err)
+		}
+		if opts.FingerprintDir != "" {
+			if err := eng.LoadDir(opts.FingerprintDir); err != nil {
+				return nil, fmt.Errorf("fingerprint dir %s: %w", opts.FingerprintDir, err)
+			}
+		}
+		fp = eng
+	}
+	store := opts.Artifacts
+	if store == nil {
+		store = artifact.NewMemoryStore(profile.Budget.MaxArtifactBytes)
+	}
+	counters := opts.Metrics
+	if counters == nil {
+		counters = &metrics.Counters{}
+	}
 	return &Engine{
-		registry: opts.Registry,
-		profile:  profile,
-		planner:  NewPlanner(opts.Registry, profile),
-		limiter:  NewRateLimiter(profile.Budget.RatePerSecond),
+		registry:     opts.Registry,
+		profile:      profile,
+		planner:      NewPlanner(opts.Registry, profile),
+		limiter:      NewRateLimiter(profile.Budget.RatePerSecond),
+		scheduler:    NewScheduler(profile.Budget.RatePerSecond, profile.Budget.MaxConcurrentPerHost),
+		fingerprints: fp,
+		artifacts:    store,
+		metrics:      counters,
 	}, nil
 }
 
@@ -117,6 +162,7 @@ func (e *Engine) ScanTarget(ctx context.Context, raw string) (*ScanResult, error
 		}
 	}
 
+	e.applyFingerprints(asset)
 	return &ScanResult{Asset: asset, State: state}, nil
 }
 
@@ -133,11 +179,12 @@ func (e *Engine) runTask(ctx context.Context, task Task, asset *model.Asset, sta
 		return err
 	}
 	in := CollectorInput{
-		Asset:    asset,
-		Endpoint: task.Endpoint,
-		Target:   task.Target,
-		State:    state,
-		Timeout:  cfg.Timeout,
+		Asset:     asset,
+		Endpoint:  task.Endpoint,
+		Target:    task.Target,
+		State:     state,
+		Timeout:   cfg.Timeout,
+		Artifacts: e.artifacts,
 	}
 	obs, err := c.Run(ctx, in)
 	state.Budget.ConsumeProbe()
@@ -158,6 +205,23 @@ func (e *Engine) runTask(ctx context.Context, task Task, asset *model.Asset, sta
 		applyObservationToAsset(asset, state, o)
 	}
 	return nil
+}
+
+func (e *Engine) applyFingerprints(asset *model.Asset) {
+	if e == nil || e.fingerprints == nil || asset == nil {
+		return
+	}
+	asset.Claims = asset.Claims[:0]
+	for _, c := range e.fingerprints.Match(asset.Observations) {
+		asset.AddClaim(c)
+	}
+	if e.metrics != nil {
+		for _, c := range asset.Claims {
+			if len(c.ContradictionIDs) > 0 {
+				e.metrics.RecordConflict()
+			}
+		}
+	}
 }
 
 func applyObservationToAsset(asset *model.Asset, state *ScanState, o model.ObservationRecord) {
