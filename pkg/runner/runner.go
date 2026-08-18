@@ -3,15 +3,12 @@ package runner
 import (
 	"bufio"
 	"context"
-	"encoding/json"
 	"fmt"
-	"log"
 	"net"
 	"os"
 	"strings"
 	"sync"
 	"sync/atomic"
-	"time"
 
 	"github.com/SiriusScan/ping++/fingerprint"
 	"github.com/SiriusScan/ping++/pkg/probes"
@@ -22,27 +19,6 @@ import (
 	"github.com/SiriusScan/ping++/pkg/probes/ssh"
 	"github.com/SiriusScan/ping++/pkg/probes/tcp"
 )
-
-// #region agent log
-func debugLog(location, message string, data map[string]interface{}, hypothesisID string) {
-	logPath := "/Users/oz/Projects/Sirius-Project/Sirius/.cursor/debug.log"
-	entry := map[string]interface{}{
-		"timestamp":    time.Now().UnixMilli(),
-		"location":     location,
-		"message":      message,
-		"data":         data,
-		"sessionId":    "debug-session",
-		"hypothesisId": hypothesisID,
-	}
-	jsonData, _ := json.Marshal(entry)
-	f, err := os.OpenFile(logPath, os.O_APPEND|os.O_CREATE|os.O_WRONLY, 0644)
-	if err == nil {
-		f.WriteString(string(jsonData) + "\n")
-		f.Close()
-	}
-}
-
-// #endregion
 
 // Runner is the main execution engine for ping++.
 // It manages probe execution, concurrency, and result aggregation.
@@ -91,9 +67,6 @@ func NewRunner(options *Options) (*Runner, error) {
 
 // initProbes initializes the enabled probe types.
 func (r *Runner) initProbes() error {
-	// #region agent log
-	debugLog("runner.go:initProbes", "Initializing probes", map[string]interface{}{"probeTypes": r.options.ProbeTypes, "tcpPorts": r.options.TCPPorts}, "A")
-	// #endregion
 	for _, probeType := range r.options.ProbeTypes {
 		switch strings.ToLower(probeType) {
 		case "icmp":
@@ -195,6 +168,10 @@ func (r *Runner) worker(work <-chan string) {
 }
 
 // scanHost performs all enabled probes against a single host.
+//
+// Liveness is additive: any successful probe (including ICMP) marks the host
+// alive. A lack of open TCP ports must never reverse that conclusion — a host
+// can be alive with all scanned ports closed, filtered, or UDP-only.
 func (r *Runner) scanHost(target string) *Result {
 	result := NewResult(target)
 
@@ -214,29 +191,13 @@ func (r *Runner) scanHost(target string) *Result {
 		result.AddProbeResult(probeResult)
 	}
 
-	// CRITICAL: If TCP probe was used but found no open ports, override IsAlive to false.
-	// This prevents false positives from:
-	// 1. Gateway ICMP responses for non-existent hosts
-	// 2. Gateway RST responses for non-existent hosts
-	// A truly alive host should have at least one TCP port that accepts connections.
-	if result.IsAlive && r.hasTCPProbe() && len(result.OpenPorts) == 0 {
-		// #region agent log
-		log.Printf("[RUNNER DEBUG] %s: Overriding IsAlive to false - ICMP responded but TCP found no open ports", target)
-		// #endregion
-		result.IsAlive = false
-		result.Details["override_reason"] = "icmp_only_no_tcp_ports"
-	}
-
-	// Calculate original TTL for reference
+	// Calculate original TTL for reference (from probes that observe real remote TTL)
 	if result.TTL > 0 {
 		result.OriginalTTL = fingerprint.CalculateOriginalTTL(result.TTL)
 	}
 
-	// Use the new fingerprint aggregator for OS detection
+	// Use the fingerprint aggregator for OS detection
 	if result.IsAlive {
-		// #region agent log
-		debugLog("runner.go:scanHost", "Aggregating fingerprint evidence", map[string]interface{}{"target": target, "probeCount": len(result.Probes), "openPorts": result.OpenPorts}, "B")
-		// #endregion
 		fpResult := fingerprint.AggregateFromProbes(result.Probes, result.OpenPorts)
 
 		result.OSFamily = fpResult.OSFamily
@@ -255,16 +216,6 @@ func (r *Runner) scanHost(target string) *Result {
 	}
 
 	return result
-}
-
-// hasTCPProbe checks if the runner has a TCP probe enabled.
-func (r *Runner) hasTCPProbe() bool {
-	for _, probe := range r.probes {
-		if probe.Name() == "tcp" {
-			return true
-		}
-	}
-	return false
 }
 
 // loadTargets loads all targets from options.

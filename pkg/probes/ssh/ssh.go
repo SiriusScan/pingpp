@@ -5,37 +5,14 @@ package ssh
 import (
 	"bufio"
 	"context"
-	"encoding/json"
 	"fmt"
 	"net"
-	"os"
 	"regexp"
 	"strings"
 	"time"
 
 	"github.com/SiriusScan/ping++/pkg/probes"
 )
-
-// #region agent log
-func debugLog(location, message string, data map[string]interface{}, hypothesisID string) {
-	logPath := "/Users/oz/Projects/Sirius-Project/Sirius/.cursor/debug.log"
-	entry := map[string]interface{}{
-		"timestamp":    time.Now().UnixMilli(),
-		"location":     location,
-		"message":      message,
-		"data":         data,
-		"sessionId":    "debug-session",
-		"hypothesisId": hypothesisID,
-	}
-	jsonData, _ := json.Marshal(entry)
-	f, err := os.OpenFile(logPath, os.O_APPEND|os.O_CREATE|os.O_WRONLY, 0644)
-	if err == nil {
-		f.WriteString(string(jsonData) + "\n")
-		f.Close()
-	}
-}
-
-// #endregion
 
 // SSHPort is the standard SSH port.
 const SSHPort = 22
@@ -53,9 +30,6 @@ var (
 
 	// CentOS/RHEL: SSH-2.0-OpenSSH_7.4
 	rhelPattern = regexp.MustCompile(`(?i)(rhel|centos|red\s*hat)[_-]?(\d+)?`)
-
-	// macOS: SSH-2.0-OpenSSH_8.6
-	// Note: macOS doesn't include OS name in banner, detected by OpenSSH version patterns
 
 	// Windows: SSH-2.0-OpenSSH_for_Windows_8.1
 	windowsSSHPattern = regexp.MustCompile(`(?i)OpenSSH[_-]for[_-]Windows[_-]?(\d+(?:\.\d+)?)?`)
@@ -189,9 +163,6 @@ func ParseSSHBanner(banner string) OSInfo {
 	if windowsSSHPattern.MatchString(banner) {
 		info.Family = "windows"
 		matches := windowsSSHPattern.FindStringSubmatch(banner)
-		// #region agent log
-		debugLog("ssh.go:ParseSSHBanner", "Windows SSH pattern matched", map[string]interface{}{"banner": banner, "matches": matches, "matchLen": len(matches)}, "C")
-		// #endregion
 		if len(matches) > 1 && matches[1] != "" {
 			info.Version = "Windows (OpenSSH " + matches[1] + ")"
 			info.Hint = "OpenSSH for Windows " + matches[1]

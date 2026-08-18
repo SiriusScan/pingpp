@@ -6,6 +6,10 @@ import (
 )
 
 // OSResult contains the aggregated OS detection result.
+//
+// Deprecated: Prefer AggregateFromProbes / FingerprintResult. This TTL-only
+// path is retained only for compatibility with older call sites and should
+// not be used in normal scan execution.
 type OSResult struct {
 	Family      string     `json:"family"`       // linux, windows, cisco, unknown
 	Hint        string     `json:"hint"`         // More specific hint
@@ -16,6 +20,10 @@ type OSResult struct {
 }
 
 // AggregateOSFromProbes analyzes multiple probe results to determine OS.
+//
+// Deprecated: Use AggregateFromProbes instead. This function only considers
+// TTL evidence and diverges from the weighted multi-source aggregator used
+// by the runner. It is not called from normal execution paths.
 func AggregateOSFromProbes(results []probes.ProbeResult) OSResult {
 	osResult := OSResult{
 		Family: "unknown",
