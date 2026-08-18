@@ -1,6 +1,7 @@
 // Full-pipeline scanner: discovery → enumerate → classify → fingerprint.
 //
 //	go run ./examples/scan shimcounty.com
+//	go run ./examples/scan www.shimcounty.com
 //	go run ./examples/scan -profile quick shimcounty.com
 //	go run ./examples/scan -json -profile default shimcounty.com
 package main
@@ -27,10 +28,11 @@ func main() {
 	timeout := flag.Duration("timeout", 4*time.Minute, "overall scan deadline")
 	flag.Parse()
 
-	target := "shimcounty.com"
+	seed := "shimcounty.com"
 	if flag.NArg() > 0 {
-		target = flag.Arg(0)
+		seed = flag.Arg(0)
 	}
+	hosts := expandSeed(seed)
 
 	var profile engine.ProfileName
 	switch strings.ToLower(*profileName) {
@@ -55,35 +57,73 @@ func main() {
 	ctx, cancel := context.WithTimeout(context.Background(), *timeout)
 	defer cancel()
 
-	fmt.Fprintf(os.Stderr, "scanning %s (profile=%s)\n", target, profile)
-	res, err := eng.ScanTarget(ctx, target)
-	if err != nil {
-		fmt.Fprintf(os.Stderr, "scan: %v\n", err)
-		os.Exit(1)
-	}
-
 	fp := fingerprint.NewEngine()
 	_ = fp.LoadBuiltinPacks(fingerprint.RepoFingerprintsRoot())
-	claims := fp.Match(res.Asset.Observations)
-	claims = append(claims, fingerprint.FuseOS(claims)...)
-	for _, c := range claims {
-		res.Asset.AddClaim(c)
-	}
 
-	alive := res.State.Reachability.State == model.ReachabilityConfirmed ||
-		res.State.Reachability.State == model.ReachabilityProbable
+	fmt.Fprintf(os.Stderr, "seed %s → %s (profile=%s)\n", seed, strings.Join(hosts, ", "), profile)
 
-	if *asJSON {
-		data, err := json.MarshalIndent(res.Asset, "", "  ")
+	var scanned int
+	var results []*engine.ScanResult
+	for _, host := range hosts {
+		fmt.Fprintf(os.Stderr, "scanning %s\n", host)
+		res, err := eng.ScanTarget(ctx, host)
 		if err != nil {
-			fmt.Fprintf(os.Stderr, "json: %v\n", err)
-			os.Exit(1)
+			fmt.Fprintf(os.Stderr, "  skip %s: %v\n", host, err)
+			continue
 		}
-		fmt.Println(string(data))
-		return
-	}
+		claims := fp.Match(res.Asset.Observations)
+		claims = append(claims, fingerprint.FuseOS(claims)...)
+		for _, c := range claims {
+			res.Asset.AddClaim(c)
+		}
+		scanned++
+		results = append(results, res)
 
-	printReport(target, profile, res, alive)
+		alive := res.State.Reachability.State == model.ReachabilityConfirmed ||
+			res.State.Reachability.State == model.ReachabilityProbable
+		if *asJSON {
+			data, err := json.MarshalIndent(res.Asset, "", "  ")
+			if err != nil {
+				fmt.Fprintf(os.Stderr, "json: %v\n", err)
+				os.Exit(1)
+			}
+			fmt.Println(string(data))
+			continue
+		}
+		printReport(host, profile, res, alive)
+		fmt.Println()
+	}
+	if scanned == 0 {
+		fmt.Fprintf(os.Stderr, "no resolvable hosts from seed %q\n", seed)
+		os.Exit(1)
+	}
+}
+
+// expandSeed treats a registrable domain as a seed: apex + www.
+func expandSeed(raw string) []string {
+	raw = strings.TrimSpace(strings.ToLower(raw))
+	raw = strings.TrimPrefix(raw, "http://")
+	raw = strings.TrimPrefix(raw, "https://")
+	raw = strings.TrimSuffix(raw, "/")
+	if raw == "" {
+		return nil
+	}
+	seen := map[string]bool{}
+	var out []string
+	add := func(h string) {
+		if h == "" || seen[h] {
+			return
+		}
+		seen[h] = true
+		out = append(out, h)
+	}
+	add(raw)
+	if strings.HasPrefix(raw, "www.") {
+		add(strings.TrimPrefix(raw, "www."))
+	} else if strings.Count(raw, ".") >= 1 {
+		add("www." + raw)
+	}
+	return out
 }
 
 func printReport(input string, profile engine.ProfileName, res *engine.ScanResult, alive bool) {
