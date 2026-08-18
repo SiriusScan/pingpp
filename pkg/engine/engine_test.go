@@ -115,6 +115,53 @@ func TestEngineEnumerationPipeline(t *testing.T) {
 	}
 }
 
+func TestClassificationPassesHostnameTarget(t *testing.T) {
+	addrs, err := net.DefaultResolver.LookupIPAddr(context.Background(), "localhost")
+	if err != nil || len(addrs) == 0 {
+		t.Fatalf("resolve localhost: %v", err)
+	}
+	ln, err := net.Listen("tcp", net.JoinHostPort(addrs[0].IP.String(), "0"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer ln.Close()
+	go func() {
+		for {
+			c, err := ln.Accept()
+			if err != nil {
+				return
+			}
+			_ = c.Close()
+		}
+	}()
+	port := uint16(ln.Addr().(*net.TCPAddr).Port)
+
+	var gotHost string
+	reg := engine.BuildDefaultRegistry(icmp.Register, tcp.Register)
+	reg.MustRegister("collect.banner", func(cfg engine.Config) (engine.Collector, error) {
+		return &hostnameCaptureCollector{host: &gotHost}, nil
+	})
+	eng, err := engine.NewEngine(engine.Options{
+		Profile:       engine.ProfileQuick,
+		SkipDiscovery: true,
+		TCPPorts:      []uint16{port},
+		RatePerSecond: 1000,
+		Registry:      reg,
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+	defer cancel()
+	if _, err := eng.ScanTarget(ctx, "localhost"); err != nil {
+		t.Fatal(err)
+	}
+	if gotHost != "localhost" {
+		t.Fatalf("classification Target.Hostname=%q, want localhost", gotHost)
+	}
+}
+
 func TestBudgetStopsProbes(t *testing.T) {
 	b := engine.DefaultBudget()
 	b.MaxProbesPerHost = 2
@@ -142,5 +189,20 @@ func (s *stubCollector) Metadata() engine.CollectorMetadata {
 }
 
 func (s *stubCollector) Run(ctx context.Context, in engine.CollectorInput) ([]model.ObservationRecord, error) {
+	return nil, nil
+}
+
+type hostnameCaptureCollector struct {
+	host *string
+}
+
+func (c *hostnameCaptureCollector) Metadata() engine.CollectorMetadata {
+	return engine.CollectorMetadata{ID: "collect.banner", Stage: engine.StageCollect, Priority: 10, Cost: 1}
+}
+
+func (c *hostnameCaptureCollector) Run(ctx context.Context, in engine.CollectorInput) ([]model.ObservationRecord, error) {
+	if in.Target != nil && c.host != nil {
+		*c.host = in.Target.Hostname
+	}
 	return nil, nil
 }

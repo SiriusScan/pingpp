@@ -99,8 +99,12 @@ func (e *Engine) ScanTarget(ctx context.Context, raw string) (*ScanResult, error
 		}
 	}
 
-	// Stage 4+: classification / collect for registered protocol collectors only
+	// Stage 4+: classification / collect for registered protocol collectors only.
+	// Attach the resolved Target so collectors can use hostname for SNI / Host.
 	classTasks := e.planner.PlanClassification(asset, state)
+	for i := range classTasks {
+		classTasks[i].Target = &target
+	}
 	sort.Slice(classTasks, func(i, j int) bool {
 		return classTasks[i].Priority > classTasks[j].Priority
 	})
