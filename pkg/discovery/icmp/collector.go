@@ -10,6 +10,7 @@ import (
 
 	"github.com/SiriusScan/ping++/pkg/engine"
 	"github.com/SiriusScan/ping++/pkg/model"
+	"github.com/SiriusScan/ping++/pkg/transport"
 )
 
 const collectorID = "discovery.icmp"
@@ -57,6 +58,9 @@ func (c *Collector) Run(ctx context.Context, in engine.CollectorInput) ([]model.
 		pinger.Timeout = in.Timeout
 	}
 	pinger.SetPrivileged(true)
+	if err := transport.CountDial(ctx); err != nil {
+		return nil, err
+	}
 
 	var ttl int
 	var latency time.Duration

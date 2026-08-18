@@ -13,6 +13,7 @@ import (
 	"github.com/SiriusScan/ping++/pkg/engine"
 	"github.com/SiriusScan/ping++/pkg/model"
 	httpcol "github.com/SiriusScan/ping++/pkg/protocol/http"
+	"github.com/SiriusScan/ping++/pkg/transport"
 )
 
 func TestHTTPCollectorGETObservation(t *testing.T) {
@@ -65,6 +66,53 @@ func TestHTTPCollectorGETObservation(t *testing.T) {
 	}
 	if obs[0].ObservationType != model.ObservationHTTP {
 		t.Fatal("wrong type")
+	}
+}
+
+func TestHTTPCollectorUsesMeteredTransport(t *testing.T) {
+	ln := startHTTP(t, []byte("<html><title>ok</title></html>"))
+	defer func() { _ = ln.Close() }()
+	port := uint16(ln.Addr().(*net.TCPAddr).Port)
+	c, err := httpcol.New(engine.Config{Timeout: time.Second})
+	if err != nil {
+		t.Fatal(err)
+	}
+	m := &transport.Meter{MaxNetworkOps: 16}
+	ctx := transport.WithMeter(context.Background(), m)
+	ep := model.NewEndpoint("127.0.0.1", port, model.TransportTCP, model.EndpointOpen)
+	res, err := c.RunResult(ctx, engine.CollectorInput{Endpoint: &ep})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if res.Outcome != engine.OutcomeSuccess {
+		t.Fatalf("outcome=%q", res.Outcome)
+	}
+	ops, _, read, sent := m.Snapshot()
+	if ops < 1 {
+		t.Fatalf("HTTP must count dials through metered transport, ops=%d", ops)
+	}
+	if read == 0 || sent == 0 {
+		t.Fatalf("HTTP must count request/response bytes, read=%d sent=%d", read, sent)
+	}
+}
+
+func TestHTTPCollectorRespectsNetworkBudget(t *testing.T) {
+	ln := startHTTP(t, []byte("ok"))
+	defer func() { _ = ln.Close() }()
+	port := uint16(ln.Addr().(*net.TCPAddr).Port)
+	c, _ := httpcol.New(engine.Config{Timeout: time.Second})
+	m := &transport.Meter{MaxNetworkOps: 0}
+	// MaxNetworkOps 0 means unlimited; use 1 after a reserved dial.
+	m.MaxNetworkOps = 1
+	_ = m.AddDial()
+	ctx := transport.WithMeter(context.Background(), m)
+	ep := model.NewEndpoint("127.0.0.1", port, model.TransportTCP, model.EndpointOpen)
+	res, err := c.RunResult(ctx, engine.CollectorInput{Endpoint: &ep})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if res.Outcome == engine.OutcomeSuccess {
+		t.Fatal("HTTP should not succeed when the network budget is already spent")
 	}
 }
 

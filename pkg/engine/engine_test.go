@@ -66,6 +66,34 @@ func TestPlannerPortPriorsNotIdentity(t *testing.T) {
 	}
 }
 
+func TestPlannerUnknownUDPStillSchedulesProtocolCollectors(t *testing.T) {
+	reg := engine.NewRegistry()
+	reg.MustRegister("collect.dns", func(cfg engine.Config) (engine.Collector, error) {
+		return &scriptedCollector{id: "collect.dns", protocol: "dns", outcome: engine.OutcomeSuccess}, nil
+	})
+	p := engine.NewPlanner(reg, engine.ProfileFor(engine.ProfileDefault))
+	asset := model.NewAssetFromIP("192.0.2.10")
+	asset.AddEndpoint(model.NewEndpoint("192.0.2.10", 53, model.TransportUDP, model.EndpointUnknown))
+	tasks := p.Next(asset, &engine.ScanState{Completed: map[string]bool{}})
+	if len(tasks) != 1 || tasks[0].CollectorID != "collect.dns" {
+		t.Fatalf("unknown UDP 53 tasks=%v, want collect.dns", taskIDs(tasks))
+	}
+}
+
+func TestPlannerClosedUDPIsNotClassified(t *testing.T) {
+	reg := engine.NewRegistry()
+	reg.MustRegister("collect.dns", func(cfg engine.Config) (engine.Collector, error) {
+		return &scriptedCollector{id: "collect.dns", protocol: "dns", outcome: engine.OutcomeSuccess}, nil
+	})
+	p := engine.NewPlanner(reg, engine.ProfileFor(engine.ProfileDefault))
+	asset := model.NewAssetFromIP("192.0.2.10")
+	asset.AddEndpoint(model.NewEndpoint("192.0.2.10", 53, model.TransportUDP, model.EndpointClosed))
+	tasks := p.Next(asset, &engine.ScanState{Completed: map[string]bool{}})
+	if len(tasks) != 0 {
+		t.Fatalf("closed UDP must not schedule collectors: %v", taskIDs(tasks))
+	}
+}
+
 func TestPlannerUnknownPortUsesBannerThenTLS(t *testing.T) {
 	reg := engine.NewRegistry()
 	for _, id := range []string{"collect.banner", "collect.tls", "collect.http", "collect.ssh"} {

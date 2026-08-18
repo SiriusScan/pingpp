@@ -12,7 +12,8 @@ type meterKey struct{}
 var ErrBudgetExceeded = errors.New("network operation budget exceeded")
 
 // Meter counts network operations for a scan. Collectors should not
-// increment budget counters themselves; dial helpers do it here.
+// increment budget counters themselves; DialTCP/DialUDP, CountDial, and
+// wrapped connection Read/Write do it here.
 type Meter struct {
 	mu            sync.Mutex
 	NetworkOps    int

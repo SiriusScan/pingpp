@@ -70,9 +70,6 @@ func (c *Collector) Run(ctx context.Context, in engine.CollectorInput) ([]model.
 	hits := probePorts(ctx, ip, c.ports, timeout, c.concurrency)
 	var observations []model.ObservationRecord
 	for _, hit := range hits {
-		if hit.state == "" {
-			continue
-		}
 		ep := model.NewEndpoint(ip, hit.port, model.TransportUDP, hit.state)
 		ref := ep.Ref()
 		obs := model.ObservationRecord{
@@ -146,6 +143,8 @@ func dialPort(ctx context.Context, ip string, port uint16, timeout time.Duration
 	}
 	defer func() { _ = conn.Close() }()
 	_ = conn.SetDeadline(time.Now().Add(timeout))
+	// A generic datagram can surface ICMP port-unreachable (closed).
+	// Silence is unknown — protocol collectors decide responsiveness.
 	_, _ = conn.Write([]byte{0})
 	buf := make([]byte, 512)
 	n, err := conn.Read(buf)
@@ -158,7 +157,7 @@ func dialPort(ctx context.Context, ip string, port uint16, timeout time.Duration
 
 func classifyUDPErr(err error) model.EndpointState {
 	if err == nil {
-		return model.EndpointFiltered
+		return model.EndpointUnknown
 	}
 	if errors.Is(err, context.Canceled) || errors.Is(err, context.DeadlineExceeded) || errors.Is(err, transport.ErrBudgetExceeded) {
 		return model.EndpointUnknown
@@ -168,9 +167,9 @@ func classifyUDPErr(err error) model.EndpointState {
 		return model.EndpointClosed
 	}
 	if strings.Contains(msg, "timeout") || strings.Contains(msg, "i/o timeout") {
-		return model.EndpointFiltered
+		return model.EndpointUnknown
 	}
-	return model.EndpointFiltered
+	return model.EndpointUnknown
 }
 
 // Register adds the UDP enumeration collector.

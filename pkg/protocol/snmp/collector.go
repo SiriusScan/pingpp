@@ -11,6 +11,7 @@ import (
 
 	"github.com/SiriusScan/ping++/pkg/engine"
 	"github.com/SiriusScan/ping++/pkg/model"
+	"github.com/SiriusScan/ping++/pkg/transport"
 )
 
 const id = "collect.snmp"
@@ -70,6 +71,15 @@ func (c *Collector) RunResult(ctx context.Context, in engine.CollectorInput) (en
 		obs.AssetID = in.Asset.ID
 	}
 
+	if err := transport.CountDial(ctx); err != nil {
+		obs.Error = err.Error()
+		obs.Completeness = "none"
+		return engine.CollectorResult{
+			Outcome:      engine.OutcomeFromError(err),
+			Protocol:     "snmp",
+			Observations: []model.ObservationRecord{obs},
+		}, nil
+	}
 	g := &gosnmp.GoSNMP{
 		Target:    in.Endpoint.Address,
 		Port:      in.Endpoint.Port,
@@ -89,6 +99,7 @@ func (c *Collector) RunResult(ctx context.Context, in engine.CollectorInput) (en
 			Observations: []model.ObservationRecord{obs},
 		}, nil
 	}
+	g.Conn = transport.WrapConn(ctx, g.Conn)
 	defer func() { _ = g.Conn.Close() }()
 
 	oids := []string{

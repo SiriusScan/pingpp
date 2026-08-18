@@ -11,6 +11,7 @@ import (
 	"github.com/SiriusScan/ping++/pkg/engine"
 	"github.com/SiriusScan/ping++/pkg/model"
 	dncol "github.com/SiriusScan/ping++/pkg/protocol/dns"
+	"github.com/SiriusScan/ping++/pkg/transport"
 )
 
 func TestDNSCollectorSpeaksDNSNotOSResolver(t *testing.T) {
@@ -49,6 +50,42 @@ func TestDNSCollectorSpeaksDNSNotOSResolver(t *testing.T) {
 	}
 	if !p.Responded || len(p.Answers) == 0 {
 		t.Fatalf("payload=%+v", p)
+	}
+}
+
+func TestDNSCollectorUsesMeteredTransport(t *testing.T) {
+	mux := dns.NewServeMux()
+	mux.HandleFunc(".", func(w dns.ResponseWriter, r *dns.Msg) {
+		m := new(dns.Msg)
+		m.SetReply(r)
+		_ = w.WriteMsg(m)
+	})
+	pc, err := net.ListenPacket("udp", "127.0.0.1:0")
+	if err != nil {
+		t.Fatal(err)
+	}
+	srv := &dns.Server{PacketConn: pc, Handler: mux}
+	go func() { _ = srv.ActivateAndServe() }()
+	defer func() { _ = srv.Shutdown() }()
+	port := uint16(pc.LocalAddr().(*net.UDPAddr).Port)
+
+	c, _ := dncol.New(engine.Config{Timeout: time.Second})
+	m := &transport.Meter{MaxNetworkOps: 4}
+	ctx := transport.WithMeter(context.Background(), m)
+	ep := model.NewEndpoint("127.0.0.1", port, model.TransportUDP, model.EndpointUnknown)
+	res, err := c.RunResult(ctx, engine.CollectorInput{Endpoint: &ep})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if res.Outcome != engine.OutcomeSuccess {
+		t.Fatalf("outcome=%q", res.Outcome)
+	}
+	ops, _, read, sent := m.Snapshot()
+	if ops < 1 {
+		t.Fatalf("DNS must count a UDP dial, ops=%d", ops)
+	}
+	if read == 0 || sent == 0 {
+		t.Fatalf("DNS must count query/response bytes, read=%d sent=%d", read, sent)
 	}
 }
 

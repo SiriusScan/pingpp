@@ -147,7 +147,7 @@ func (e *Engine) ScanTarget(ctx context.Context, raw string) (*ScanResult, error
 		return nil, err
 	}
 
-	const maxPasses = 8
+	const maxPasses = 32
 	for pass := 0; pass < maxPasses; pass++ {
 		if !e.budgetRemaining(state) {
 			break

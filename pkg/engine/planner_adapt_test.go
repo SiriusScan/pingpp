@@ -50,6 +50,38 @@ func TestPlannerSSHSuccessStopsIrrelevantCollectors(t *testing.T) {
 	}
 }
 
+func TestPlannerFallbackAfterPortPriorsNoMatch(t *testing.T) {
+	reg := engine.NewRegistry()
+	ssh := &scriptedCollector{id: "collect.ssh", protocol: "ssh", outcome: engine.OutcomeNoMatch}
+	http := &scriptedCollector{id: "collect.http", protocol: "http", outcome: engine.OutcomeSuccess}
+	reg.MustRegister("collect.ssh", func(cfg engine.Config) (engine.Collector, error) { return ssh, nil })
+	reg.MustRegister("collect.http", func(cfg engine.Config) (engine.Collector, error) { return http, nil })
+
+	scanFake(t, withEnumerate(reg, 22), 22)
+	if ssh.runs() != 1 {
+		t.Fatalf("SSH prior runs=%d, want 1", ssh.runs())
+	}
+	if http.runs() != 1 {
+		t.Fatalf("HTTP on 22 after SSH NoMatch runs=%d, want 1", http.runs())
+	}
+}
+
+func TestPlannerRedisOnMySQLPortAfterPriorNoMatch(t *testing.T) {
+	reg := engine.NewRegistry()
+	mysql := &scriptedCollector{id: "collect.mysql", protocol: "mysql", outcome: engine.OutcomeNoMatch}
+	redis := &scriptedCollector{id: "collect.redis", protocol: "redis", outcome: engine.OutcomeSuccess}
+	reg.MustRegister("collect.mysql", func(cfg engine.Config) (engine.Collector, error) { return mysql, nil })
+	reg.MustRegister("collect.redis", func(cfg engine.Config) (engine.Collector, error) { return redis, nil })
+
+	scanFake(t, withEnumerate(reg, 3306), 3306)
+	if mysql.runs() != 1 {
+		t.Fatalf("MySQL prior runs=%d, want 1", mysql.runs())
+	}
+	if redis.runs() != 1 {
+		t.Fatalf("Redis on 3306 after MySQL NoMatch runs=%d, want 1", redis.runs())
+	}
+}
+
 func TestPlannerNoMatchIsNotRetried(t *testing.T) {
 	reg := engine.NewRegistry()
 	tls := &scriptedCollector{id: "collect.tls", protocol: "tls", outcome: engine.OutcomeNoMatch}
@@ -160,6 +192,14 @@ func (s *scriptedCollector) Metadata() engine.CollectorMetadata {
 		ports, prio = []uint16{443, 8443}, 70
 	case "collect.mysql":
 		ports, prio = []uint16{3306}, 55
+	case "collect.redis":
+		ports, prio = []uint16{6379}, 55
+	case "collect.dns":
+		ports, prio = []uint16{53}, 60
+		tr = []model.Transport{model.TransportUDP, model.TransportTCP}
+	case "collect.snmp":
+		ports, prio = []uint16{161}, 65
+		tr = []model.Transport{model.TransportUDP}
 	case "collect.banner":
 		prio = 20
 	case "collect.http.enrich":

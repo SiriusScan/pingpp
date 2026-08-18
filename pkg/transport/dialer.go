@@ -11,20 +11,24 @@ import (
 
 // DialTCP dials a TCP endpoint with timeout and records a network operation.
 func DialTCP(ctx context.Context, address string, port uint16, timeout time.Duration) (net.Conn, error) {
-	if err := recordDial(ctx); err != nil {
-		return nil, err
-	}
-	d := net.Dialer{Timeout: timeout}
-	return d.DialContext(ctx, "tcp", net.JoinHostPort(address, itoa(port)))
+	return dial(ctx, "tcp", address, port, timeout)
 }
 
 // DialUDP dials a UDP endpoint and records a network operation.
 func DialUDP(ctx context.Context, address string, port uint16, timeout time.Duration) (net.Conn, error) {
+	return dial(ctx, "udp", address, port, timeout)
+}
+
+func dial(ctx context.Context, network, address string, port uint16, timeout time.Duration) (net.Conn, error) {
 	if err := recordDial(ctx); err != nil {
 		return nil, err
 	}
 	d := net.Dialer{Timeout: timeout}
-	return d.DialContext(ctx, "udp", net.JoinHostPort(address, itoa(port)))
+	conn, err := d.DialContext(ctx, network, net.JoinHostPort(address, itoa(port)))
+	if err != nil {
+		return nil, err
+	}
+	return WrapConn(ctx, conn), nil
 }
 
 func recordDial(ctx context.Context) error {

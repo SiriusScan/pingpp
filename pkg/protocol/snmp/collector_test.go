@@ -10,6 +10,7 @@ import (
 	"github.com/SiriusScan/ping++/pkg/engine"
 	"github.com/SiriusScan/ping++/pkg/model"
 	"github.com/SiriusScan/ping++/pkg/protocol/snmp"
+	"github.com/SiriusScan/ping++/pkg/transport"
 )
 
 func TestSNMPObservationOmitsCommunity(t *testing.T) {
@@ -58,6 +59,28 @@ func TestSNMPNoMatchOnGarbageUDP(t *testing.T) {
 		if _, ok := raw["community"]; ok {
 			t.Fatal("community must not appear in observation JSON")
 		}
+	}
+}
+
+func TestSNMPCollectorCountsDial(t *testing.T) {
+	pc, err := net.ListenPacket("udp", "127.0.0.1:0")
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer func() { _ = pc.Close() }()
+	go func() {
+		buf := make([]byte, 1500)
+		_, _, _ = pc.ReadFrom(buf)
+	}()
+	port := uint16(pc.LocalAddr().(*net.UDPAddr).Port)
+	c, _ := snmp.New(engine.Config{Timeout: 200 * time.Millisecond})
+	m := &transport.Meter{MaxNetworkOps: 4}
+	ctx := transport.WithMeter(context.Background(), m)
+	ep := model.NewEndpoint("127.0.0.1", port, model.TransportUDP, model.EndpointUnknown)
+	_, _ = c.RunResult(ctx, engine.CollectorInput{Endpoint: &ep})
+	ops, _, _, _ := m.Snapshot()
+	if ops < 1 {
+		t.Fatalf("SNMP must count a network operation, ops=%d", ops)
 	}
 }
 

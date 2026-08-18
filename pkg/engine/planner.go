@@ -91,7 +91,7 @@ func (p *Planner) PlanClassification(asset *model.Asset, state *ScanState) []Tas
 	var tasks []Task
 	for i := range asset.Endpoints {
 		ep := &asset.Endpoints[i]
-		if ep.State != model.EndpointOpen && ep.State != model.EndpointResponsive {
+		if !classifiableEndpoint(ep) {
 			continue
 		}
 		for _, id := range p.likelyCollectorsForPort(ep.Port, ep.Transport) {
@@ -126,7 +126,7 @@ func (p *Planner) Next(asset *model.Asset, state *ScanState) []Task {
 	var tasks []Task
 	for i := range asset.Endpoints {
 		ep := &asset.Endpoints[i]
-		if ep.State != model.EndpointOpen && ep.State != model.EndpointResponsive {
+		if !classifiableEndpoint(ep) {
 			continue
 		}
 		if task, ok := p.nextForEndpoint(asset, ep, state); ok {
@@ -147,7 +147,7 @@ func (p *Planner) nextForEndpoint(asset *model.Asset, ep *model.Endpoint, state 
 			return task, true
 		}
 	}
-	for _, id := range p.likelyCollectorsForPort(ep.Port, ep.Transport) {
+	for _, id := range p.classificationSequence(ep) {
 		if state != nil && exclusiveProtocol(strings.TrimPrefix(id, "collect.")) && state.HasProtocol(key, "http") && id != "collect.http" && id != "collect.tls" && id != "collect.banner" {
 			continue
 		}
@@ -156,6 +156,47 @@ func (p *Planner) nextForEndpoint(asset *model.Asset, ep *model.Endpoint, state 
 		}
 	}
 	return p.maybeEnrich(asset, ep, state)
+}
+
+func classifiableEndpoint(ep *model.Endpoint) bool {
+	if ep == nil {
+		return false
+	}
+	switch ep.State {
+	case model.EndpointOpen, model.EndpointResponsive:
+		return true
+	case model.EndpointClosed:
+		return false
+	case model.EndpointUnknown, model.EndpointFiltered:
+		// UDP silence is unknown, not exclusion. Protocol collectors decide.
+		return ep.Transport == model.TransportUDP
+	default:
+		return false
+	}
+}
+
+// classificationSequence is port priors first, then the general fallback
+// sequence. Ports never exclude collectors; they only order attempts.
+func (p *Planner) classificationSequence(ep *model.Endpoint) []string {
+	if ep == nil {
+		return p.filterRegistered(unknownSequence(model.TransportTCP))
+	}
+	return uniqueIDs(p.likelyCollectorsForPort(ep.Port, ep.Transport), p.filterRegistered(unknownSequence(ep.Transport)))
+}
+
+func uniqueIDs(parts ...[]string) []string {
+	seen := map[string]bool{}
+	var out []string
+	for _, ids := range parts {
+		for _, id := range ids {
+			if id == "" || seen[id] {
+				continue
+			}
+			seen[id] = true
+			out = append(out, id)
+		}
+	}
+	return out
 }
 
 func (p *Planner) maybeEnrich(asset *model.Asset, ep *model.Endpoint, state *ScanState) (Task, bool) {

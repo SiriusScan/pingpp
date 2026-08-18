@@ -10,6 +10,7 @@ import (
 
 	"github.com/SiriusScan/ping++/pkg/engine"
 	"github.com/SiriusScan/ping++/pkg/model"
+	"github.com/SiriusScan/ping++/pkg/transport"
 )
 
 const id = "collect.dns"
@@ -81,9 +82,27 @@ func (c *Collector) RunResult(ctx context.Context, in engine.CollectorInput) (en
 	msg.SetQuestion(".", dns.TypeNS)
 	msg.RecursionDesired = true
 
+	var conn net.Conn
+	var err error
+	if netw == "tcp" {
+		conn, err = transport.DialTCP(ctx, in.Endpoint.Address, in.Endpoint.Port, timeout)
+	} else {
+		conn, err = transport.DialUDP(ctx, in.Endpoint.Address, in.Endpoint.Port, timeout)
+	}
+	if err != nil {
+		obs.Error = err.Error()
+		obs.Completeness = "none"
+		out := engine.OutcomeFromError(err)
+		if out == engine.OutcomeInternalError {
+			out = engine.OutcomeNoMatch
+		}
+		_ = obs.SetPayload(payload)
+		return engine.CollectorResult{Outcome: out, Protocol: "dns", Observations: []model.ObservationRecord{obs}}, nil
+	}
+	defer func() { _ = conn.Close() }()
+
 	client := &dns.Client{Net: netw, Timeout: timeout}
-	addr := net.JoinHostPort(in.Endpoint.Address, fmt.Sprintf("%d", in.Endpoint.Port))
-	resp, _, err := client.ExchangeContext(ctx, msg, addr)
+	resp, _, err := client.ExchangeWithConnContext(ctx, msg, &dns.Conn{Conn: conn})
 	if err != nil {
 		obs.Error = err.Error()
 		obs.Completeness = "none"

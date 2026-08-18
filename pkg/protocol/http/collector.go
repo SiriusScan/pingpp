@@ -13,11 +13,13 @@ import (
 	"net/http"
 	"net/url"
 	"regexp"
+	"strconv"
 	"strings"
 	"time"
 
 	"github.com/SiriusScan/ping++/pkg/engine"
 	"github.com/SiriusScan/ping++/pkg/model"
+	"github.com/SiriusScan/ping++/pkg/transport"
 )
 
 const (
@@ -251,6 +253,9 @@ func newHTTPClient(timeout time.Duration, serverName string, redirect func(*http
 		Timeout:       timeout,
 		CheckRedirect: redirect,
 		Transport: &http.Transport{
+			DialContext: func(ctx context.Context, network, addr string) (net.Conn, error) {
+				return dialHTTP(ctx, network, addr, timeout)
+			},
 			TLSClientConfig: &tls.Config{
 				InsecureSkipVerify: true,
 				ServerName:         serverName,
@@ -258,6 +263,28 @@ func newHTTPClient(timeout time.Duration, serverName string, redirect func(*http
 			},
 			DisableKeepAlives: true,
 		},
+	}
+}
+
+func dialHTTP(ctx context.Context, network, addr string, timeout time.Duration) (net.Conn, error) {
+	host, portStr, err := net.SplitHostPort(addr)
+	if err != nil {
+		return nil, err
+	}
+	port64, err := strconv.ParseUint(portStr, 10, 16)
+	if err != nil {
+		return nil, err
+	}
+	if deadline, ok := ctx.Deadline(); ok {
+		if remaining := time.Until(deadline); remaining > 0 && remaining < timeout {
+			timeout = remaining
+		}
+	}
+	switch network {
+	case "udp", "udp4", "udp6":
+		return transport.DialUDP(ctx, host, uint16(port64), timeout)
+	default:
+		return transport.DialTCP(ctx, host, uint16(port64), timeout)
 	}
 }
 
