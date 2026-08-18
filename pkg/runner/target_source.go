@@ -92,6 +92,9 @@ func NewTargetSource(opts ...SourceOption) (TargetSource, error) {
 
 	inner := &concatSource{}
 	for _, t := range cfg.targets {
+		if _, err := parseTarget(t, SourceArgv); err != nil {
+			return nil, err
+		}
 		inner.raw = append(inner.raw, rawItem{text: t, source: SourceArgv})
 	}
 	inner.files = append(inner.files, cfg.files...)

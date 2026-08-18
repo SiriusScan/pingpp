@@ -74,7 +74,7 @@ func (c *Collector) RunResult(ctx context.Context, in engine.CollectorInput) (en
 		return engine.CollectorResult{}, fmt.Errorf("http: endpoint required")
 	}
 	timeout := c.timeout
-	if in.Timeout > 0 {
+	if in.Timeout > timeout {
 		timeout = in.Timeout
 	}
 	hostHeader := in.Endpoint.Address
@@ -94,6 +94,7 @@ func (c *Collector) RunResult(ctx context.Context, in engine.CollectorInput) (en
 	if path, ok := in.Extra["path"]; ok && path != "" {
 		url = fmt.Sprintf("%s://%s%s", scheme, net.JoinHostPort(in.Endpoint.Address, fmt.Sprintf("%d", in.Endpoint.Port)), path)
 	}
+	publicURL := publicHTTPURL(scheme, hostHeader, in.Endpoint.Port, in.Extra["path"])
 
 	var chain []model.Redirect
 	client := newHTTPClient(timeout, hostHeader, func(req *http.Request, via []*http.Request) error {
@@ -153,10 +154,13 @@ func (c *Collector) RunResult(ctx context.Context, in engine.CollectorInput) (en
 	defer func() { _ = resp.Body.Close() }()
 
 	body, truncated := readLimited(resp.Body, maxBody)
-	payload := buildHTTPObservation(url, resp, body)
+	payload := buildHTTPObservation(publicURL, resp, body)
 	payload.Truncated = truncated
 	if resp.Request != nil && resp.Request.URL != nil {
-		payload.EffectiveURL = resp.Request.URL.String()
+		payload.EffectiveURL = hostnameURL(*resp.Request.URL, hostHeader, in.Endpoint.Address, in.Endpoint.Port)
+	}
+	if payload.EffectiveURL == "" {
+		payload.EffectiveURL = publicURL
 	}
 	payload.RedirectChain = chain
 	if in.Artifacts != nil && len(body) > 0 {
@@ -246,6 +250,44 @@ func extractFaviconHint(body []byte) *model.FaviconObservation {
 		return &model.FaviconObservation{URL: string(m[1])}
 	}
 	return &model.FaviconObservation{URL: "/favicon.ico"}
+}
+
+func publicHTTPURL(scheme, host string, port uint16, path string) string {
+	hostport := host
+	if !((scheme == "http" && port == 80) || (scheme == "https" && port == 443)) {
+		hostport = net.JoinHostPort(host, fmt.Sprintf("%d", port))
+	} else if strings.Contains(host, ":") && !strings.HasPrefix(host, "[") {
+		hostport = net.JoinHostPort(host, fmt.Sprintf("%d", port))
+	}
+	if path == "" {
+		return fmt.Sprintf("%s://%s/", scheme, hostport)
+	}
+	if !strings.HasPrefix(path, "/") {
+		path = "/" + path
+	}
+	return fmt.Sprintf("%s://%s%s", scheme, hostport, path)
+}
+
+func hostnameURL(u url.URL, hostHeader, dialAddr string, port uint16) string {
+	if hostHeader == "" || hostHeader == dialAddr {
+		return u.String()
+	}
+	hp := hostHeader
+	p := u.Port()
+	if p == "" {
+		if port != 80 && port != 443 {
+			p = fmt.Sprintf("%d", port)
+		}
+	}
+	if p != "" && p != "80" && p != "443" {
+		hp = net.JoinHostPort(hostHeader, p)
+	} else if p == "80" && u.Scheme == "https" {
+		hp = net.JoinHostPort(hostHeader, p)
+	} else if p == "443" && u.Scheme == "http" {
+		hp = net.JoinHostPort(hostHeader, p)
+	}
+	u.Host = hp
+	return u.String()
 }
 
 func newHTTPClient(timeout time.Duration, serverName string, redirect func(*http.Request, []*http.Request) error) *http.Client {

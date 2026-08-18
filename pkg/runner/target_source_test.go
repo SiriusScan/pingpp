@@ -139,11 +139,7 @@ func TestFileCommentsAndStrictDiagnostics(t *testing.T) {
 
 func TestRejectURLAndHostPort(t *testing.T) {
 	for _, in := range []string{"https://example.com:8443/admin", "example.com:443"} {
-		src, err := NewTargetSource(WithTargets(in), WithStrictInput(true))
-		if err != nil {
-			t.Fatal(err)
-		}
-		_, err = CollectAll(context.Background(), src)
+		_, err := NewTargetSource(WithTargets(in), WithStrictInput(true))
 		if !errors.Is(err, ErrUnsupportedTarget) {
 			t.Fatalf("%s: %v", in, err)
 		}

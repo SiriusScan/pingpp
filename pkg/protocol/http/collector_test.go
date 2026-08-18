@@ -6,6 +6,7 @@ import (
 	"encoding/hex"
 	"net"
 	"net/http"
+	"strings"
 	"testing"
 	"time"
 
@@ -53,6 +54,12 @@ func TestHTTPCollectorGETObservation(t *testing.T) {
 	}
 	if p.Server != "test-httpd" {
 		t.Fatalf("server=%q", p.Server)
+	}
+	if !strings.Contains(p.URL, "grafana.local") {
+		t.Fatalf("url should use hostname, got %q", p.URL)
+	}
+	if !strings.Contains(p.EffectiveURL, "grafana.local") {
+		t.Fatalf("effective url should use hostname, got %q", p.EffectiveURL)
 	}
 	sum := sha256.Sum256(body)
 	if p.RawBodySHA256 != hex.EncodeToString(sum[:]) {

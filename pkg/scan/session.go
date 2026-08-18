@@ -15,15 +15,13 @@ import (
 
 // Session is a prepared scanning runtime. Registry, fingerprint corpus,
 // artifact store, metrics, and the global network limiter load once.
-// Each Scan call owns isolated Asset/ScanState/meter.
-//
-// Scan is serialized on this type until Runner host-concurrency (C9) fans
-// out across sessions or a proven concurrent Engine split exists. The
-// global limiter is still attached so C7 rate applies to every dial.
+// Each Scan call builds a per-target Engine that shares those resources
+// so Runner host-concurrency is real.
 type Session struct {
 	mu      sync.Mutex
 	closed  bool
-	eng     *engine.Engine
+	opts    engine.Options
+	metrics *metrics.Counters
 	timeout time.Duration
 }
 
@@ -95,37 +93,49 @@ func NewSession(cfg Config) (*Session, error) {
 	opts.Artifacts = store
 	opts.Fingerprints = fp
 	opts.Metrics = counters
-
-	eng, err := engine.NewEngine(opts)
-	if err != nil {
-		return nil, err
+	if opts.UnmatchedBannerFile != "" {
+		sink, err := metrics.OpenBannerSink(opts.UnmatchedBannerFile)
+		if err != nil {
+			return nil, fmt.Errorf("unmatched banner file: %w", err)
+		}
+		counters.AttachBannerSink(sink)
+		opts.UnmatchedBannerFile = ""
 	}
+
 	return &Session{
-		eng:     eng,
+		opts:    opts,
+		metrics: counters,
 		timeout: cfg.Limits.TargetTimeout,
 	}, nil
 }
 
-// Scan runs the engine pipeline for one target. It is not safe for concurrent
-// callers of the same Session; Runner host-concurrency is a later stage.
+// Scan runs the engine pipeline for one target. Concurrent callers share
+// fingerprints, artifacts, metrics, and the global limiter.
 func (s *Session) Scan(ctx context.Context, target string) (*engine.ScanResult, error) {
 	if s == nil {
 		return nil, fmt.Errorf("nil session")
 	}
 	s.mu.Lock()
-	defer s.mu.Unlock()
 	if s.closed {
+		s.mu.Unlock()
 		return nil, fmt.Errorf("session closed")
 	}
-	if s.timeout > 0 {
+	opts := s.opts
+	timeout := s.timeout
+	s.mu.Unlock()
+	if timeout > 0 {
 		var cancel context.CancelFunc
-		ctx, cancel = context.WithTimeout(ctx, s.timeout)
+		ctx, cancel = context.WithTimeout(ctx, timeout)
 		defer cancel()
 	}
-	return s.eng.ScanTarget(ctx, target)
+	eng, err := engine.NewEngine(opts)
+	if err != nil {
+		return nil, err
+	}
+	return eng.ScanTarget(ctx, target)
 }
 
-// Close marks the session unusable and closes Engine-owned resources.
+// Close marks the session unusable and closes the unmatched-banner sink.
 func (s *Session) Close() error {
 	if s == nil {
 		return nil
@@ -133,10 +143,10 @@ func (s *Session) Close() error {
 	s.mu.Lock()
 	defer s.mu.Unlock()
 	s.closed = true
-	if s.eng == nil {
+	if s.metrics == nil {
 		return nil
 	}
-	return s.eng.Close()
+	return s.metrics.Close()
 }
 
 // ConfigFromScanOptions maps the compatibility ScanOptions wrapper onto Config.

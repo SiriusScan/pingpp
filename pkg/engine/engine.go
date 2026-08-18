@@ -499,17 +499,31 @@ func (e *Engine) runTask(ctx context.Context, task Task, asset *model.Asset, sta
 		Extra:     task.Extra,
 		Artifacts: e.artifacts,
 	}
+	if task.CollectorID == "collect.http" || task.CollectorID == "collect.http.enrich" {
+		if e.profile.Budget.HTTPTimeout > 0 {
+			in.Timeout = e.profile.Budget.HTTPTimeout
+		}
+	}
 	if state != nil && state.Meter != nil {
 		ctx = transport.WithMeter(ctx, state.Meter)
 	}
 	if e.networkLimiter != nil {
 		ctx = transport.WithLimiter(ctx, e.networkLimiter)
 	}
+
+	e.mu.Lock()
+	e.syncMeterLocked(state)
+	if !state.Budget.Remaining() {
+		e.mu.Unlock()
+		return nil
+	}
+	state.Budget.ConsumeProbe()
+	e.mu.Unlock()
+
 	result, err := executeCollector(ctx, c, in)
 
 	e.mu.Lock()
 	defer e.mu.Unlock()
-	state.Budget.ConsumeProbe()
 	if state.Meter != nil {
 		e.syncMeterLocked(state)
 	} else if result.NetworkOps > 0 || result.BytesRead > 0 {

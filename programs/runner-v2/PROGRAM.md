@@ -144,7 +144,7 @@ Tasks:
 - [x] FileStore
 - [x] Global network-op limiter (host concurrency stays Runner/C9)
 - [x] Streaming TargetSource
-- [ ] Runner.Run
+- [x] Runner.Run
 
 ## Stage 5: Output and CLI (C10–C14)
 
@@ -155,8 +155,8 @@ Owned paths:
 
 Tasks:
 
-- [ ] `pingpp.scan/v1` + text/json/jsonl
-- [ ] `cmd/pingpp` scan + version
+- [x] `pingpp.scan/v1` + text/json/jsonl
+- [x] `cmd/pingpp` scan + version
 - [ ] Signals, exit codes, introspection commands
 
 ## Stage 6: Legacy + release (C15–C16)
@@ -177,19 +177,20 @@ Tasks:
 
 ```yaml
 goal_id: runner-v2
-task_id: runner-v2.s5.t001
-stage: "5 Runner core (C9)"
-cycle: 2
+task_id: runner-v2.s6.t001
+stage: "6 CLI UX / C13+"
+cycle: 3
 attempt: 1
 assigned_role: grok
 owned_paths:
+  - cmd/pingpp/
+  - internal/cli/
   - pkg/runner/
+  - pkg/output/
+  - pkg/buildinfo/
 acceptance_criteria:
-  - C1–C8 are on origin (contract, engine prereqs, Config, ProfileFull, Session, FileStore, limiter, TargetSource)
-  - Do not start C12/cmd/pingpp
-  - Runner.Run is the next stage after this push
-validation_commands:
-  - go test ./pkg/engine ./pkg/scan ./pkg/transport ./pkg/artifact ./pkg/runner
-  - go test -race ./pkg/transport ./pkg/scan
-next_action: Stop. C2–C8 are committed and pushed. C9 Runner.Run is out of scope for this loop.
+  - C9 ScanRun streams TargetSource through a bounded worker pool
+  - cmd/pingpp scan + version exist; .gitignore no longer swallows cmd/pingpp
+  - Session.Scan is concurrent via per-target Engine sharing fingerprints
+next_action: C13 signals/progress polish and C14 introspection; C15 README/legacy quarantine later.
 ```

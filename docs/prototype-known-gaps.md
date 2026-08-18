@@ -37,7 +37,7 @@ Reviewed prototype commit: `bfef5cb`.
 
 ## Current head
 
-This commit — R18 remaining: explicit STARTTLS on SMTP/IMAP/POP3, durable unmatched-banner JSONL sink, builtin corpus timing regression.
+This commit — production `cmd/pingpp` over Runner V2; live-scan fixes (HTTP timeout/hostname URL, concurrent Session, probe-budget cap).
 
 Canonical path:
 
@@ -395,12 +395,11 @@ Known debt:
 
 ## Production runner (separate track)
 
-Engine R1–R18 stays the scanning intelligence. Production `cmd/pingpp` /
-Runner V2 is a **new execution layer**, not a flag refresh on `pkg/runner`.
-
-Frozen contract: [runner-v2.md](runner-v2.md). Sequence is C1–C16 in that
-file. Do not start `cmd/pingpp` until C2, C3, C5, and C8 land. Do not grow
-legacy `pkg/runner.Result`.
+Engine R1–R18 stays the scanning intelligence. Production `cmd/pingpp` is a
+thin CLI over Runner V2 (`pkg/runner.ScanRun`) → `scan.Session` → engine.
+C9–C12 landed on this branch (`scan`, `version`, text/json/jsonl). Do not
+grow legacy `pkg/runner.Result`. C13–C16 (SIGINT polish, collectors/profiles
+commands, README rewrite, full-profile stress) remain.
 
 ---
 

@@ -3,6 +3,7 @@ package scan_test
 import (
 	"context"
 	"testing"
+	"time"
 
 	"github.com/SiriusScan/ping++/pkg/engine"
 	"github.com/SiriusScan/ping++/pkg/fingerprint"
@@ -50,6 +51,35 @@ func TestScanOneShotUsesSession(t *testing.T) {
 	}
 	if fingerprint.BuiltinLoadCount() <= before {
 		t.Fatal("one-shot Scan must load packs through Session")
+	}
+}
+
+func TestSessionScanIsConcurrent(t *testing.T) {
+	cfg := scan.DefaultConfig()
+	cfg.Discovery.SkipDiscovery = true
+	cfg.Ports.TCP = scan.PortSelection{Override: true}
+	cfg.Ports.UDP = scan.PortSelection{Override: true}
+	sess, err := scan.NewSession(cfg)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer func() { _ = sess.Close() }()
+
+	start := time.Now()
+	errCh := make(chan error, 2)
+	for _, target := range []string{"192.0.2.1", "192.0.2.2"} {
+		go func(t string) {
+			_, err := sess.Scan(context.Background(), t)
+			errCh <- err
+		}(target)
+	}
+	for i := 0; i < 2; i++ {
+		if err := <-errCh; err != nil {
+			t.Fatal(err)
+		}
+	}
+	if time.Since(start) > 10*time.Second {
+		t.Fatalf("concurrent empty scans took %s", time.Since(start))
 	}
 }
 
