@@ -74,6 +74,8 @@ type Options struct {
 	Metrics *metrics.Counters
 	// NetworkLimiter is the run-wide network-op limiter (C7). Nil means unlimited.
 	NetworkLimiter *transport.Limiter
+	// UnmatchedBannerFile, when set, appends unmatched banners as JSONL.
+	UnmatchedBannerFile string
 }
 
 // PrepareProfile applies Options onto a named Profile. scan.Config compiles
@@ -143,6 +145,13 @@ func NewEngine(opts Options) (*Engine, error) {
 	if counters == nil {
 		counters = &metrics.Counters{}
 	}
+	if opts.UnmatchedBannerFile != "" {
+		sink, err := metrics.OpenBannerSink(opts.UnmatchedBannerFile)
+		if err != nil {
+			return nil, fmt.Errorf("unmatched banner file: %w", err)
+		}
+		counters.AttachBannerSink(sink)
+	}
 	return &Engine{
 		registry:       opts.Registry,
 		profile:        profile,
@@ -154,6 +163,14 @@ func NewEngine(opts Options) (*Engine, error) {
 		artifacts:      store,
 		metrics:        counters,
 	}, nil
+}
+
+// Close releases Engine-owned resources (unmatched-banner sink).
+func (e *Engine) Close() error {
+	if e == nil || e.metrics == nil {
+		return nil
+	}
+	return e.metrics.Close()
 }
 
 func applyEngineOptions(profile Profile, opts Options) Profile {
@@ -692,6 +709,14 @@ func (e *Engine) recordUnmatchedBanners(asset *model.Asset) {
 			_ = o.DecodePayload(&p)
 			if p.Text != "" {
 				e.metrics.RecordUnmatchedBanner(p.Text)
+			}
+		case "smtp", "imap", "pop3", "ftp", "telnet":
+			var p struct {
+				Banner string `json:"banner"`
+			}
+			_ = o.DecodePayload(&p)
+			if p.Banner != "" {
+				e.metrics.RecordUnmatchedBanner(p.Banner)
 			}
 		}
 	}

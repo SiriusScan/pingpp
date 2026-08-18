@@ -29,8 +29,25 @@ func (c *Collector) RunResult(ctx context.Context, in engine.CollectorInput) (en
 	if in.Endpoint == nil {
 		return engine.CollectorResult{}, fmt.Errorf("imap: endpoint required")
 	}
-	return textproto.CollectBannerResult(ctx, in, c.timeout, id, textproto.ObsIMAP, "imap", "", func(p textproto.BannerObservation) bool {
-		return strings.Contains(p.Banner, "OK") && (strings.HasPrefix(p.Banner, "*") || strings.Contains(strings.ToUpper(p.Banner), "IMAP"))
+	return textproto.CollectSession(ctx, in, c.timeout, textproto.SessionConfig{
+		ProbeID:  id,
+		ObsType:  textproto.ObsIMAP,
+		Protocol: "imap",
+		Match: func(p textproto.BannerObservation) bool {
+			return strings.Contains(p.Banner, "OK") && (strings.HasPrefix(p.Banner, "*") || strings.Contains(strings.ToUpper(p.Banner), "IMAP"))
+		},
+		StartTLS: "A001 STARTTLS\r\n",
+		StartTLSOK: func(reply string) bool {
+			for _, line := range strings.Split(reply, "\n") {
+				f := strings.Fields(line)
+				if len(f) >= 2 && f[0] == "A001" && strings.EqualFold(f[1], "OK") {
+					return true
+				}
+			}
+			return false
+		},
+		PostTLSHello: "A002 CAPABILITY\r\n",
+		Tagged:       true,
 	})
 }
 func Register(r *engine.Registry) {

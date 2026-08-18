@@ -185,7 +185,7 @@ func rank(t model.ConfidenceTier) int {
 	}
 }
 
-func fixtureRoot(t *testing.T) string {
+func fixtureRoot(t testing.TB) string {
 	t.Helper()
 	_, file, _, ok := runtime.Caller(0)
 	if !ok {

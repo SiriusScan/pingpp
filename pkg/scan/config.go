@@ -19,6 +19,7 @@ type Config struct {
 	Limits       LimitConfig
 	Fingerprints FingerprintConfig
 	Artifacts    ArtifactConfig
+	Unknowns     UnknownsConfig
 	// Registry overrides the default production registry. Tests and adapters
 	// may set this; the CLI should leave it nil.
 	Registry *engine.Registry
@@ -75,6 +76,11 @@ type FingerprintConfig struct {
 type ArtifactConfig struct {
 	Dir     string
 	MaxSize int64
+}
+
+// UnknownsConfig is durable export of unmatched banners for corpus work.
+type UnknownsConfig struct {
+	BannerFile string
 }
 
 // DefaultConfig returns production defaults (profile default, no port override).
@@ -139,6 +145,7 @@ func (c Config) Compile() (engine.Options, error) {
 		MaxNetworkOps:        c.Limits.MaxNetworkOps,
 		FingerprintDirs:      append([]string(nil), c.Fingerprints.ExtraDirs...),
 		Registry:             c.Registry,
+		UnmatchedBannerFile:  c.Unknowns.BannerFile,
 	}
 	return opts, nil
 }

@@ -37,7 +37,7 @@ Reviewed prototype commit: `bfef5cb`.
 
 ## Current head
 
-This commit — review-blocker hardening: Recog service/OS/hw claims + captures + Subject, R12 native FTP/SMTP + implicit TLS, ResultCollector MQTT/AMQP/VNC/SOCKS, shared multi-address budgets, SMB metering, runtime metric semantics.
+This commit — R18 remaining: explicit STARTTLS on SMTP/IMAP/POP3, durable unmatched-banner JSONL sink, builtin corpus timing regression.
 
 Canonical path:
 
@@ -255,20 +255,22 @@ Known debt:
 
 ## R12 Text protocols
 
-Status: COMPLETE for FTP/SMTP native replies and implicit TLS; STARTTLS upgrade still debt
+Status: COMPLETE for FTP/SMTP native replies, implicit TLS, and explicit STARTTLS
 
-Commit: `ef6bed4` shared helper; `9403a4d` pos/neg tests; this commit uses FEAT/EHLO semantics and TLS wrapping
+Commit: `ef6bed4` shared helper; `9403a4d` pos/neg tests; this commit upgrades SMTP/IMAP/POP3 after a protocol match
 
 Acceptance tests:
 - `TestFTPAcceptsFTP` / `TestFTPAcceptsGenericGreetingWithFEAT` / `TestFTPRejectsGenericGreetingWithoutFEAT`
 - `TestFTPRejectsSMTP` / `TestFTPRejectsHTTPLookalike`
 - `TestSMTPAcceptsSMTP` / `TestSMTPAcceptsGenericGreetingWithEHLO` / `TestSMTPRejectsFTP`
+- `TestSMTPStartTLSUpgrade` / `TestSMTPStartTLSRejectKeepsPlaintextMatch` / `TestSMTPSkipsStartTLSWhenNotAdvertised`
 - `TestPOP3AcceptsOK` / `TestIMAPAcceptsGreeting` plus advertised 995/993
+- `TestIMAPStartTLSUpgrade` / `TestPOP3STLSUpgrade` plus reject-keeps-plaintext
 - `TestPlannerTLSSuccessReplansIMAPOn993` — TLS success schedules IMAP with `tls=1`
 - `TestUseTLSImplicitPorts` — 465/993/995 and Extra `tls=1`
+- `TestUpgradeTLSDoesNotCountDial` — STARTTLS handshake is not a second network op
 
 Known debt:
-- Explicit STARTTLS upgrade on 25/587/143/110 is not implemented (implicit TLS on 465/993/995 is).
 - Telnet match requires IAC, login/password, or the word telnet — not a full option parser.
 
 ---
@@ -372,20 +374,20 @@ Known debt:
 
 ## R18 Metrics, unknowns, hardening
 
-Status: PARTIAL
+Status: COMPLETE for STARTTLS-era remaining R18 bars (sink + corpus timings); packaging NOTICE and R5 byte metering stay debt
 
-Commit: `9403a4d` runtime counters; this commit repairs metric semantics, collector panic containment, SMB metering, byte budget, and a fusion benchmark
+Commit: `9403a4d` runtime counters; prior commit repaired metric semantics; this commit adds a JSONL unmatched-banner sink and a builtin-corpus timing suite
 
 Acceptance tests:
 - `TestRuntimeCounters` — collectors, protocol matches (via `RecordProtocolMatch`), timeouts, bytes, unknown endpoints, claim tiers, unmatched dump
+- `TestBannerSinkWritesJSONL` / `TestUnmatchedBannerFileSink` — durable file sink plus Engine close
 - `TestEvalPrecisionAtTier` — `ExactCorrect`/`StrongCorrect` live in eval tooling, not `metrics.Counters`
 - `TestCollectorPanicIsInternalError` — collector panic becomes `internal_error` and does not abort the scan
 - `TestMeterRespectsByteBudget` — `MaxBytes` blocks further dials
 - `BenchmarkFuseIndependentSignals` — fusion microbenchmark exists
+- `TestBuiltinCorpusMatchBudget` / `BenchmarkBuiltinCorpusMatch` / `BenchmarkLoadBuiltinPacks` — live Recog/Wappalyzer/YAML corpus timings, claim counts must not collapse
 
 Known debt:
-- Unmatched banner dump is in-memory (64 entries), not a file sink.
-- Performance work is a microbenchmark, not a regression suite against live corpus timings.
 - Embedded Recog/Wappalyzer license notices live under `fingerprints/`; a packaging NOTICE aggregation is not automated.
 - SNMP/ICMP payload bytes remain incompletely metered (R5).
 

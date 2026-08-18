@@ -33,6 +33,7 @@ func main() {
 	outPath := flag.String("o", "", "write output to a file (default stdout)")
 	timeout := flag.Duration("timeout", 4*time.Minute, "overall scan deadline")
 	rate := flag.Int("rate", 200, "max collector tasks per second")
+	unmatched := flag.String("unmatched-banners", "", "append unmatched banners to this JSONL file")
 	flag.Var(&targets, "t", "target hostname, IP, or URL (repeatable)")
 	flag.Usage = func() {
 		fmt.Fprintf(os.Stderr, "usage: go run ./examples/scan [flags] <target> [<target>...]\n\n")
@@ -60,14 +61,16 @@ func main() {
 	}
 
 	eng, err := engine.NewEngine(engine.Options{
-		Profile:       profile,
-		RatePerSecond: *rate,
-		Registry:      scan.NewRegistry(),
+		Profile:             profile,
+		RatePerSecond:       *rate,
+		Registry:            scan.NewRegistry(),
+		UnmatchedBannerFile: *unmatched,
 	})
 	if err != nil {
 		fmt.Fprintf(os.Stderr, "engine: %v\n", err)
 		os.Exit(1)
 	}
+	defer func() { _ = eng.Close() }()
 
 	ctx, cancel := context.WithTimeout(context.Background(), *timeout)
 	defer cancel()

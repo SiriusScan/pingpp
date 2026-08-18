@@ -29,8 +29,17 @@ func (c *Collector) RunResult(ctx context.Context, in engine.CollectorInput) (en
 	if in.Endpoint == nil {
 		return engine.CollectorResult{}, fmt.Errorf("pop3: endpoint required")
 	}
-	return textproto.CollectBannerResult(ctx, in, c.timeout, id, textproto.ObsPOP3, "pop3", "", func(p textproto.BannerObservation) bool {
-		return strings.HasPrefix(p.Banner, "+OK")
+	return textproto.CollectSession(ctx, in, c.timeout, textproto.SessionConfig{
+		ProbeID:  id,
+		ObsType:  textproto.ObsPOP3,
+		Protocol: "pop3",
+		Match: func(p textproto.BannerObservation) bool {
+			return strings.HasPrefix(p.Banner, "+OK")
+		},
+		StartTLS: "STLS\r\n",
+		StartTLSOK: func(reply string) bool {
+			return strings.HasPrefix(strings.TrimSpace(reply), "+OK")
+		},
 	})
 }
 func Register(r *engine.Registry) {

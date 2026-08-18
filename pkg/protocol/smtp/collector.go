@@ -30,7 +30,19 @@ func (c *Collector) RunResult(ctx context.Context, in engine.CollectorInput) (en
 	if in.Endpoint == nil {
 		return engine.CollectorResult{}, fmt.Errorf("smtp: endpoint required")
 	}
-	return textproto.CollectBannerResult(ctx, in, c.timeout, id, textproto.ObsSMTP, "smtp", "EHLO pingpp.local\r\n", matchSMTP)
+	return textproto.CollectSession(ctx, in, c.timeout, textproto.SessionConfig{
+		ProbeID:  id,
+		ObsType:  textproto.ObsSMTP,
+		Protocol: "smtp",
+		Hello:    "EHLO pingpp.local\r\n",
+		Match:    matchSMTP,
+		StartTLS: "STARTTLS\r\n",
+		StartTLSOK: func(reply string) bool {
+			return textproto.HasCode(reply, "220")
+		},
+		WantStartTLS: smtpAdvertisesStartTLS,
+		PostTLSHello: "EHLO pingpp.local\r\n",
+	})
 }
 func matchSMTP(p textproto.BannerObservation) bool {
 	if !strings.HasPrefix(p.Banner, "220") {
@@ -40,6 +52,15 @@ func matchSMTP(p textproto.BannerObservation) bool {
 		return false
 	}
 	return textproto.HasCode(p.Reply, "250")
+}
+
+func smtpAdvertisesStartTLS(p textproto.BannerObservation) bool {
+	for _, f := range p.Features {
+		if strings.EqualFold(f, "STARTTLS") {
+			return true
+		}
+	}
+	return false
 }
 
 func Register(r *engine.Registry) {

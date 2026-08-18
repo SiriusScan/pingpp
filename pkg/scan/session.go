@@ -125,7 +125,7 @@ func (s *Session) Scan(ctx context.Context, target string) (*engine.ScanResult, 
 	return s.eng.ScanTarget(ctx, target)
 }
 
-// Close marks the session unusable. Artifact stores currently need no flush.
+// Close marks the session unusable and closes Engine-owned resources.
 func (s *Session) Close() error {
 	if s == nil {
 		return nil
@@ -133,7 +133,10 @@ func (s *Session) Close() error {
 	s.mu.Lock()
 	defer s.mu.Unlock()
 	s.closed = true
-	return nil
+	if s.eng == nil {
+		return nil
+	}
+	return s.eng.Close()
 }
 
 // ConfigFromScanOptions maps the compatibility ScanOptions wrapper onto Config.
@@ -164,5 +167,6 @@ func ConfigFromScanOptions(opts ScanOptions) Config {
 	cfg.artifactStore = opts.Artifacts
 	cfg.metrics = opts.Metrics
 	cfg.networkLimiter = opts.NetworkLimiter
+	cfg.Unknowns.BannerFile = opts.UnmatchedBannerFile
 	return cfg
 }

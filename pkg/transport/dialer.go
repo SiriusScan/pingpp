@@ -65,6 +65,26 @@ func DialTLS(ctx context.Context, address string, port uint16, serverName string
 	return conn, nil
 }
 
+// UpgradeTLS handshakes TLS on an existing connection (STARTTLS). It does not
+// count another dial: the inner conn is already metered. Application protocols
+// must not advertise HTTP ALPN here.
+func UpgradeTLS(ctx context.Context, raw net.Conn, serverName string, timeout time.Duration) (*tls.Conn, error) {
+	if raw == nil {
+		return nil, fmt.Errorf("tls upgrade: nil connection")
+	}
+	cfg := &tls.Config{
+		InsecureSkipVerify: true, // fingerprinting, not trust validation
+		MinVersion:         tls.VersionTLS10,
+		ServerName:         serverName,
+	}
+	conn := tls.Client(raw, cfg)
+	_ = conn.SetDeadline(time.Now().Add(timeout))
+	if err := conn.HandshakeContext(ctx); err != nil {
+		return nil, err
+	}
+	return conn, nil
+}
+
 func itoa(u uint16) string {
 	return fmt.Sprintf("%d", u)
 }

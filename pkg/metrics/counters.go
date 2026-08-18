@@ -21,6 +21,7 @@ type Counters struct {
 	ConflictCount      int64
 	UnmatchedBanners   int64
 	unmatched          []string
+	bannerSink         *BannerSink
 }
 
 // RecordCollector records that a collector finished with the given outcome.
@@ -86,16 +87,20 @@ func (c *Counters) RecordClaimTier(tier string) {
 	}
 }
 
-// RecordUnmatchedBanner keeps a short dump of banners with no product claim.
+// RecordUnmatchedBanner keeps a short in-memory dump and optionally a file sink.
 func (c *Counters) RecordUnmatchedBanner(banner string) {
 	if c == nil || banner == "" {
 		return
 	}
 	c.mu.Lock()
-	defer c.mu.Unlock()
 	c.UnmatchedBanners++
 	if len(c.unmatched) < 64 {
 		c.unmatched = append(c.unmatched, banner)
+	}
+	sink := c.bannerSink
+	c.mu.Unlock()
+	if sink != nil {
+		_ = sink.WriteBanner(banner)
 	}
 }
 
@@ -109,6 +114,32 @@ func (c *Counters) UnmatchedBannerDump() []string {
 	out := make([]string, len(c.unmatched))
 	copy(out, c.unmatched)
 	return out
+}
+
+// AttachBannerSink records unmatched banners to a durable file in addition to
+// the in-memory dump. The sink is closed by Close.
+func (c *Counters) AttachBannerSink(s *BannerSink) {
+	if c == nil {
+		return
+	}
+	c.mu.Lock()
+	defer c.mu.Unlock()
+	c.bannerSink = s
+}
+
+// Close flushes and closes an attached banner sink.
+func (c *Counters) Close() error {
+	if c == nil {
+		return nil
+	}
+	c.mu.Lock()
+	sink := c.bannerSink
+	c.bannerSink = nil
+	c.mu.Unlock()
+	if sink == nil {
+		return nil
+	}
+	return sink.Close()
 }
 
 // Snapshot returns a copy of counters for reporting.

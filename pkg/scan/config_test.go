@@ -140,3 +140,15 @@ func TestConfigRejectsInvalidValues(t *testing.T) {
 		}
 	})
 }
+
+func TestConfigCompilesBannerFile(t *testing.T) {
+	cfg := scan.DefaultConfig()
+	cfg.Unknowns.BannerFile = "/tmp/unmatched.jsonl"
+	opts, err := cfg.Compile()
+	if err != nil {
+		t.Fatal(err)
+	}
+	if opts.UnmatchedBannerFile != "/tmp/unmatched.jsonl" {
+		t.Fatalf("banner file=%q", opts.UnmatchedBannerFile)
+	}
+}
