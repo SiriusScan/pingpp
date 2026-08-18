@@ -20,14 +20,14 @@ import (
 )
 
 const (
-	collectorID = "collect.http"
-	maxBody     = 64 * 1024
+	collectorID  = "collect.http"
+	maxBody      = 64 * 1024
 	maxRedirects = 5
 )
 
 var (
-	titleRe      = regexp.MustCompile(`(?is)<title[^>]*>(.*?)</title>`)
-	generatorRe  = regexp.MustCompile(`(?is)<meta[^>]+name=["']generator["'][^>]+content=["']([^"']+)["']`)
+	titleRe       = regexp.MustCompile(`(?is)<title[^>]*>(.*?)</title>`)
+	generatorRe   = regexp.MustCompile(`(?is)<meta[^>]+name=["']generator["'][^>]+content=["']([^"']+)["']`)
 	faviconLinkRe = regexp.MustCompile(`(?is)<link[^>]+rel=["'][^"']*icon[^"']*["'][^>]+href=["']([^"']+)["']`)
 )
 
