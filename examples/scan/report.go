@@ -78,39 +78,64 @@ func writeText(w io.Writer, docs []ScanDocument) error {
 
 func (d ScanDocument) Text() string {
 	var b strings.Builder
-	fmt.Fprintf(&b, "target\t%s\n", d.Target)
-	fmt.Fprintf(&b, "profile\t%s\n", d.Profile)
-	fmt.Fprintf(&b, "elapsed\t%s\n", d.Elapsed)
-	fmt.Fprintf(&b, "asset_id\t%s\n", d.State.AssetID)
-	fmt.Fprintf(&b, "reachability\t%s\t%s\n", d.State.Reachability.State, strings.Join(d.State.Reachability.Reasons, ","))
-	fmt.Fprintf(&b, "probes\t%d\t%d\n", d.State.ProbesUsed, d.State.MaxProbes)
-	fmt.Fprintf(&b, "completed\t%s\n", strings.Join(d.State.Completed, ","))
+	fmt.Fprintf(&b, "target        %s\n", d.Target)
+	fmt.Fprintf(&b, "profile       %s\n", d.Profile)
+	fmt.Fprintf(&b, "elapsed       %s\n", d.Elapsed)
+	fmt.Fprintf(&b, "asset_id      %s\n", d.State.AssetID)
+	fmt.Fprintf(&b, "reachability  %s (%s)\n", d.State.Reachability.State, strings.Join(d.State.Reachability.Reasons, ", "))
+	fmt.Fprintf(&b, "probes        %d / %d\n", d.State.ProbesUsed, d.State.MaxProbes)
+	if d.Asset != nil {
+		fmt.Fprintf(&b, "hostnames     %s\n", strings.Join(d.Asset.Hostnames, ", "))
+		ips := make([]string, 0, len(d.Asset.Addresses))
+		for _, a := range d.Asset.Addresses {
+			ips = append(ips, a.IP)
+		}
+		fmt.Fprintf(&b, "addresses     %s\n", strings.Join(ips, ", "))
+	}
+	fmt.Fprintf(&b, "completed     %s\n", strings.Join(d.State.Completed, ", "))
 
 	if d.Asset == nil {
 		return b.String()
 	}
-	fmt.Fprintf(&b, "hostnames\t%s\n", strings.Join(d.Asset.Hostnames, ","))
-	ips := make([]string, 0, len(d.Asset.Addresses))
-	for _, a := range d.Asset.Addresses {
-		ips = append(ips, a.IP)
-	}
-	fmt.Fprintf(&b, "addresses\t%s\n", strings.Join(ips, ","))
 
-	fmt.Fprintf(&b, "\nendpoints\t%d\n", len(d.Asset.Endpoints))
+	fmt.Fprintf(&b, "\nendpoints (%d)\n", len(d.Asset.Endpoints))
 	for _, ep := range d.Asset.Endpoints {
-		fmt.Fprintf(&b, "endpoint\t%s\t%d\t%s\t%s\n", ep.Transport, ep.Port, ep.State, ep.Address)
+		fmt.Fprintf(&b, "  %s/%-5d %-12s %s\n", ep.Transport, ep.Port, ep.State, ep.Address)
 	}
 
-	fmt.Fprintf(&b, "\nclaims\t%d\n", len(d.Asset.Claims))
+	fmt.Fprintf(&b, "\nclaims (%d)\n", len(d.Asset.Claims))
 	for _, c := range d.Asset.Claims {
-		raw, _ := json.Marshal(c)
-		fmt.Fprintf(&b, "claim\t%s\n", raw)
+		raw, _ := json.MarshalIndent(c, "    ", "  ")
+		fmt.Fprintf(&b, "  %s\n%s\n", c.ID, raw)
 	}
 
-	fmt.Fprintf(&b, "\nobservations\t%d\n", len(d.Asset.Observations))
+	fmt.Fprintf(&b, "\nobservations (%d)\n", len(d.Asset.Observations))
 	for _, o := range d.Asset.Observations {
-		raw, _ := json.Marshal(o)
-		fmt.Fprintf(&b, "observation\t%s\n", raw)
+		port := 0
+		addr := ""
+		if o.Endpoint != nil {
+			port = int(o.Endpoint.Port)
+			addr = o.Endpoint.Address
+		}
+		fmt.Fprintf(&b, "  %s  probe=%s  port=%d  addr=%s  completeness=%s\n", o.ObservationType, o.ProbeID, port, addr, o.Completeness)
+		if o.Error != "" {
+			fmt.Fprintf(&b, "    error: %s\n", o.Error)
+		}
+		if o.ID != "" {
+			fmt.Fprintf(&b, "    id: %s\n", o.ID)
+		}
+		if o.CorrelationGroup != "" {
+			fmt.Fprintf(&b, "    correlation: %s\n", o.CorrelationGroup)
+		}
+		if len(o.Payload) > 0 {
+			var pretty any
+			if json.Unmarshal(o.Payload, &pretty) == nil {
+				raw, _ := json.MarshalIndent(pretty, "    ", "  ")
+				fmt.Fprintf(&b, "    payload:\n    %s\n", raw)
+			} else {
+				fmt.Fprintf(&b, "    payload: %s\n", o.Payload)
+			}
+		}
 	}
 	return b.String()
 }

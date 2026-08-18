@@ -270,16 +270,15 @@ go test ./...
 
 ### Running locally
 
-There is no `cmd/pingpp` binary yet. Use the enumeration example. It prints the full scan document (every endpoint, observation payload, and claim) as JSON:
+There is no `cmd/pingpp` binary yet. Use the enumeration example. Default output is a complete diagnostic dump (every endpoint, observation payload, and claim). Pass `-json` when another tool should consume the same document.
 
 ```bash
 go run ./examples/scan -t https://n8n.example.com/
 go run ./examples/scan -seed example.com
-go run ./examples/scan -profile quick -o scan.json 10.0.0.5
-go run ./examples/scan -text n8n.example.com   # complete line dump, still untruncated
+go run ./examples/scan -json -o scan.json n8n.example.com
 ```
 
-ICMP discovery needs root and is skipped automatically when unprivileged. TCP connect success is `responsive`, not `open`; `open` requires a protocol handshake. The example does not summarize or omit records.
+ICMP discovery needs root and is skipped automatically when unprivileged. TCP connect success is `responsive`, not `open`; `open` requires a protocol handshake. Diagnostic text is not truncated.
 
 ## Dependencies
 

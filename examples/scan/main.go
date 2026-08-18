@@ -1,11 +1,11 @@
 // Enumeration scan example: resolve → discover → enumerate → classify → fingerprint.
 //
-// Default stdout is the full library document (asset + observations + claims)
-// so another tool can ingest it. Nothing is summarized or truncated.
+// Default stdout is a complete diagnostic dump (every endpoint, observation
+// payload, and claim — nothing truncated). Use -json when another tool
+// should consume the same document.
 //
 //	go run ./examples/scan n8n.example.com
-//	go run ./examples/scan -t https://n8n.example.com/ -o scan.json
-//	go run ./examples/scan -text n8n.example.com
+//	go run ./examples/scan -json -o scan.json n8n.example.com
 //	go run ./examples/scan -seed example.com
 package main
 
@@ -27,8 +27,8 @@ func main() {
 	var targets multiFlag
 	profileName := flag.String("profile", "default", "scan profile: quick, default, or deep")
 	seed := flag.Bool("seed", false, "also try apex and www for a registrable domain")
-	text := flag.Bool("text", false, "print a complete line-oriented dump instead of JSON")
-	outPath := flag.String("o", "", "write the document to a file (default stdout)")
+	asJSON := flag.Bool("json", false, "print the full scan document as JSON")
+	outPath := flag.String("o", "", "write output to a file (default stdout)")
 	timeout := flag.Duration("timeout", 4*time.Minute, "overall scan deadline")
 	rate := flag.Int("rate", 200, "max collector tasks per second")
 	flag.Var(&targets, "t", "target hostname, IP, or URL (repeatable)")
@@ -107,15 +107,15 @@ func main() {
 		out = f
 	}
 
-	if *text {
-		if err := writeText(out, docs); err != nil {
-			fmt.Fprintf(os.Stderr, "write: %v\n", err)
+	if *asJSON {
+		if err := writeJSON(out, docs); err != nil {
+			fmt.Fprintf(os.Stderr, "json: %v\n", err)
 			os.Exit(1)
 		}
 		return
 	}
-	if err := writeJSON(out, docs); err != nil {
-		fmt.Fprintf(os.Stderr, "json: %v\n", err)
+	if err := writeText(out, docs); err != nil {
+		fmt.Fprintf(os.Stderr, "write: %v\n", err)
 		os.Exit(1)
 	}
 }

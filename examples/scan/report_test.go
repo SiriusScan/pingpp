@@ -53,7 +53,7 @@ func TestDocumentKeepsFullObservationPayloads(t *testing.T) {
 	if strings.Contains(text, "…") || strings.Contains(text, "...") {
 		t.Fatalf("text dump truncated:\n%s", text)
 	}
-	if !strings.Contains(text, "endpoint\ttcp\t21\tresponsive") {
+	if !strings.Contains(text, "tcp/21") || !strings.Contains(text, "responsive") {
 		t.Fatalf("missing connect-only endpoint:\n%s", text)
 	}
 	if !strings.Contains(text, answers[0]) {
