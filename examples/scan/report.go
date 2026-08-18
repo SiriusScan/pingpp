@@ -83,10 +83,9 @@ func writeText(w io.Writer, docs []ScanDocument, verbose bool) error {
 	return nil
 }
 
-// Text is the default human-readable report: host summary plus every
-// positive finding (open/responsive endpoints, protocol matches, fingerprint
-// claims, and successful observation payloads). Negative/no-match probes
-// are omitted.
+// Text is the default human-readable report: host summary plus protocol-
+// confirmed findings. Connect-only/responsive ports are used for
+// enumeration and are omitted from this view.
 func (d ScanDocument) Text() string {
 	var b strings.Builder
 	fmt.Fprintf(&b, "%s\n", d.Target)
@@ -148,9 +147,6 @@ func (d ScanDocument) Text() string {
 		writeClaimLines(&b, claims, "    ")
 		for _, line := range obs {
 			fmt.Fprintf(&b, "    %s\n", line)
-		}
-		if len(claims) == 0 && len(obs) == 0 && ep.State == model.EndpointResponsive {
-			fmt.Fprintf(&b, "    tcp accept; no protocol match\n")
 		}
 	}
 	return b.String()
@@ -224,13 +220,11 @@ func (d ScanDocument) Verbose() string {
 func positiveEndpoints(asset *model.Asset) []model.Endpoint {
 	var out []model.Endpoint
 	for _, ep := range asset.Endpoints {
-		switch ep.State {
-		case model.EndpointOpen, model.EndpointResponsive:
+		if ep.State == model.EndpointResponsive || ep.State == model.EndpointClosed || ep.State == model.EndpointFiltered {
+			continue
+		}
+		if ep.State == model.EndpointOpen || len(claimsForEndpoint(asset, ep)) > 0 || len(observationsForEndpoint(asset, ep)) > 0 {
 			out = append(out, ep)
-		default:
-			if len(claimsForEndpoint(asset, ep)) > 0 || len(observationsForEndpoint(asset, ep)) > 0 {
-				out = append(out, ep)
-			}
 		}
 	}
 	return out

@@ -87,7 +87,6 @@ func TestFindingsReportShowsAllPositiveMatches(t *testing.T) {
 	doc := sampleDoc()
 	text := doc.Text()
 	for _, want := range []string{
-		"tcp/21", "responsive",
 		"tcp/53", "protocol     dns",
 		"93.184.216.34",
 		"tcp/443",
@@ -103,6 +102,9 @@ func TestFindingsReportShowsAllPositiveMatches(t *testing.T) {
 	}
 	if strings.Contains(text, "tcp/22") {
 		t.Fatalf("closed port leaked into findings:\n%s", text)
+	}
+	if strings.Contains(text, "tcp/21") || strings.Contains(text, "responsive") {
+		t.Fatalf("connect-only/responsive port leaked into findings:\n%s", text)
 	}
 	if strings.Contains(text, "not ssh") {
 		t.Fatalf("negative observation leaked into findings:\n%s", text)

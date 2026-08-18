@@ -1,9 +1,9 @@
 // Enumeration scan example: resolve → discover → enumerate → classify → fingerprint.
 //
-// Default stdout is a simplified findings report (every positive match:
-// open/responsive endpoints, protocol claims, fingerprint claims, and
-// successful observation fields). Use -verbose for the complete diagnostic
-// dump, or -json for the same document as JSON.
+// Default stdout is a simplified findings report: protocol-confirmed
+// endpoints and fingerprint claims only. TCP accept/RST-only ports stay in
+// enumeration; they are omitted here. Use -verbose for the complete dump,
+// or -json for the same document as JSON.
 //
 //	go run ./examples/scan n8n.example.com
 //	go run ./examples/scan -verbose n8n.example.com
