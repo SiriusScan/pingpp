@@ -1,0 +1,315 @@
+- id: app-grafana
+  scope: application
+  correlation_group: http_web_ui
+  inputs:
+    observation_type: http
+  matches:
+    - field: title
+      regex: "(?i)grafana"
+  claims:
+    - kind: application
+      vendor: Grafana Labs
+      product: Grafana
+      certainty: strong
+      score: 92
+- id: app-jenkins
+  scope: application
+  correlation_group: http_web_ui
+  inputs:
+    observation_type: http
+  matches:
+    - field: title
+      regex: "(?i)jenkins"
+  claims:
+    - kind: application
+      vendor: Jenkins
+      product: Jenkins
+      certainty: strong
+      score: 92
+- id: app-gitlab
+  scope: application
+  correlation_group: http_web_ui
+  inputs:
+    observation_type: http
+  matches:
+    - field: title
+      regex: "(?i)gitlab"
+  claims:
+    - kind: application
+      vendor: GitLab
+      product: GitLab
+      certainty: strong
+      score: 90
+- id: app-prometheus
+  scope: application
+  correlation_group: http_web_ui
+  inputs:
+    observation_type: http
+  matches:
+    - field: title
+      regex: "(?i)prometheus"
+  claims:
+    - kind: application
+      product: Prometheus
+      certainty: strong
+      score: 90
+- id: app-kibana
+  scope: application
+  correlation_group: http_web_ui
+  inputs:
+    observation_type: http
+  matches:
+    - field: title
+      regex: "(?i)kibana"
+  claims:
+    - kind: application
+      vendor: Elastic
+      product: Kibana
+      certainty: strong
+      score: 90
+- id: app-elasticsearch
+  scope: application
+  correlation_group: http_web_ui
+  inputs:
+    observation_type: http
+  matches:
+    - field: title
+      regex: "(?i)elasticsearch"
+  claims:
+    - kind: application
+      vendor: Elastic
+      product: Elasticsearch
+      certainty: probable
+      score: 80
+- id: app-wordpress
+  scope: application
+  correlation_group: http_web_ui
+  inputs:
+    observation_type: http
+  matches:
+    - field: meta_generator
+      regex: "(?i)wordpress"
+  claims:
+    - kind: application
+      vendor: WordPress
+      product: WordPress
+      certainty: strong
+      score: 90
+- id: app-jira
+  scope: application
+  correlation_group: http_web_ui
+  inputs:
+    observation_type: http
+  matches:
+    - field: title
+      regex: "(?i)jira"
+  claims:
+    - kind: application
+      vendor: Atlassian
+      product: Jira
+      certainty: strong
+      score: 88
+- id: app-confluence
+  scope: application
+  correlation_group: http_web_ui
+  inputs:
+    observation_type: http
+  matches:
+    - field: title
+      regex: "(?i)confluence"
+  claims:
+    - kind: application
+      vendor: Atlassian
+      product: Confluence
+      certainty: strong
+      score: 88
+- id: product-nginx
+  scope: product
+  correlation_group: http_web_server
+  inputs:
+    observation_type: http
+  matches:
+    - field: server
+      regex: "(?i)nginx"
+  claims:
+    - kind: product
+      vendor: F5
+      product: nginx
+      certainty: strong
+      score: 90
+- id: product-apache
+  scope: product
+  correlation_group: http_web_server
+  inputs:
+    observation_type: http
+  matches:
+    - field: server
+      regex: "(?i)apache"
+  claims:
+    - kind: product
+      vendor: Apache
+      product: Apache HTTP Server
+      certainty: strong
+      score: 90
+- id: product-iis
+  scope: product
+  correlation_group: http_web_server
+  inputs:
+    observation_type: http
+  matches:
+    - field: server
+      regex: "(?i)Microsoft-IIS"
+  claims:
+    - kind: product
+      vendor: Microsoft
+      product: IIS
+      certainty: exact
+      score: 96
+- id: product-caddy
+  scope: product
+  correlation_group: http_web_server
+  inputs:
+    observation_type: http
+  matches:
+    - field: server
+      regex: "(?i)caddy"
+  claims:
+    - kind: product
+      product: Caddy
+      certainty: strong
+      score: 90
+- id: product-tomcat
+  scope: product
+  correlation_group: http_web_server
+  inputs:
+    observation_type: http
+  matches:
+    - field: server
+      regex: "(?i)tomcat|Coyote"
+  claims:
+    - kind: product
+      vendor: Apache
+      product: Tomcat
+      certainty: strong
+      score: 88
+- id: product-jetty
+  scope: product
+  correlation_group: http_web_server
+  inputs:
+    observation_type: http
+  matches:
+    - field: server
+      regex: "(?i)jetty"
+  claims:
+    - kind: product
+      vendor: Eclipse
+      product: Jetty
+      certainty: strong
+      score: 88
+- id: app-harbor
+  scope: application
+  correlation_group: http_web_ui
+  inputs:
+    observation_type: http
+  matches:
+    - field: title
+      regex: "(?i)harbor"
+  claims:
+    - kind: application
+      product: Harbor
+      certainty: strong
+      score: 90
+- id: app-nexus
+  scope: application
+  correlation_group: http_web_ui
+  inputs:
+    observation_type: http
+  matches:
+    - field: title
+      regex: "(?i)nexus"
+  claims:
+    - kind: application
+      vendor: Sonatype
+      product: Nexus
+      certainty: probable
+      score: 78
+- id: app-jupyter
+  scope: application
+  correlation_group: http_web_ui
+  inputs:
+    observation_type: http
+  matches:
+    - field: title
+      regex: "(?i)jupyter"
+  claims:
+    - kind: application
+      product: Jupyter
+      certainty: strong
+      score: 88
+- id: app-kubernetes-api
+  scope: application
+  correlation_group: http_web_ui
+  inputs:
+    observation_type: http
+  matches:
+    - field: title
+      regex: "(?i)kubernetes"
+  claims:
+    - kind: application
+      vendor: Kubernetes
+      product: Kubernetes API
+      certainty: probable
+      score: 75
+- id: product-openresty
+  scope: product
+  correlation_group: http_web_server
+  inputs:
+    observation_type: http
+  matches:
+    - field: server
+      regex: "(?i)openresty"
+  claims:
+    - kind: product
+      product: OpenResty
+      certainty: strong
+      score: 90
+- id: product-traefik
+  scope: product
+  correlation_group: http_web_server
+  inputs:
+    observation_type: http
+  matches:
+    - field: server
+      regex: "(?i)traefik"
+  claims:
+    - kind: product
+      product: Traefik
+      certainty: strong
+      score: 90
+- id: product-envoy
+  scope: product
+  correlation_group: http_web_server
+  inputs:
+    observation_type: http
+  matches:
+    - field: server
+      regex: "(?i)envoy"
+  claims:
+    - kind: product
+      vendor: Envoy
+      product: Envoy
+      certainty: strong
+      score: 88
+- id: product-haproxy
+  scope: product
+  correlation_group: http_web_server
+  inputs:
+    observation_type: http
+  matches:
+    - field: server
+      regex: "(?i)haproxy|HAProxy"
+  claims:
+    - kind: product
+      product: HAProxy
+      certainty: strong
+      score: 88
