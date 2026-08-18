@@ -109,7 +109,7 @@ func ProfileFor(name ProfileName) Profile {
 			TCPPorts:            append([]uint16(nil), DefaultPorts...),
 			UDPPorts:            append([]uint16(nil), DefaultUDPPorts...),
 			DiscoveryCollectors: []string{"discovery.icmp", "discovery.tcp"},
-			CollectCollectors:   []string{"enumerate.tcp", "collect.tls", "collect.http", "collect.ssh", "collect.smb"},
+			CollectCollectors:   []string{"enumerate.tcp", "enumerate.udp", "collect.tls", "collect.http", "collect.ssh", "collect.smb"},
 			Budget:              b,
 		}
 	default:
@@ -118,7 +118,7 @@ func ProfileFor(name ProfileName) Profile {
 			TCPPorts:            append([]uint16(nil), DefaultPorts...),
 			UDPPorts:            append([]uint16(nil), DefaultUDPPorts...),
 			DiscoveryCollectors: []string{"discovery.icmp", "discovery.tcp"},
-			CollectCollectors:   []string{"enumerate.tcp", "collect.tls", "collect.http", "collect.ssh", "collect.smb"},
+			CollectCollectors:   []string{"enumerate.tcp", "enumerate.udp", "collect.tls", "collect.http", "collect.ssh", "collect.smb"},
 			Budget:              b,
 		}
 	}

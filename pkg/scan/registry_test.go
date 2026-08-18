@@ -8,7 +8,7 @@ import (
 
 func TestNewRegistryHasSSHAndSMB(t *testing.T) {
 	r := scan.NewRegistry()
-	for _, id := range []string{"collect.ssh", "collect.smb", "collect.http", "collect.tls", "enumerate.tcp", "collect.banner"} {
+	for _, id := range []string{"collect.ssh", "collect.smb", "collect.http", "collect.tls", "enumerate.tcp", "enumerate.udp", "collect.banner"} {
 		if !r.Has(id) {
 			t.Fatalf("missing %s", id)
 		}

@@ -39,6 +39,7 @@ type Options struct {
 	Profile       ProfileName
 	SkipDiscovery bool
 	TCPPorts      []uint16
+	UDPPorts      []uint16
 	RatePerSecond int
 	Registry      *Registry
 	// MaxNetworkOps overrides the profile network-operation budget when > 0.
@@ -64,6 +65,9 @@ func NewEngine(opts Options) (*Engine, error) {
 	}
 	if len(opts.TCPPorts) > 0 {
 		profile.TCPPorts = append([]uint16(nil), opts.TCPPorts...)
+	}
+	if len(opts.UDPPorts) > 0 {
+		profile.UDPPorts = append([]uint16(nil), opts.UDPPorts...)
 	}
 	if opts.RatePerSecond > 0 {
 		profile.Budget.RatePerSecond = opts.RatePerSecond
@@ -406,6 +410,16 @@ func applyObservationToAsset(asset *model.Asset, state *ScanState, o model.Obser
 				state.Reachability.State = model.ReachabilityProbable
 			}
 			state.Reachability.Reasons = appendUniqueReason(state.Reachability.Reasons, "tcp.rst")
+		}
+	case model.ObservationUDPEndpoint:
+		var payload model.UDPEndpointObservation
+		_ = o.DecodePayload(&payload)
+		if o.Endpoint != nil {
+			asset.AddEndpoint(model.NewEndpoint(o.Endpoint.Address, o.Endpoint.Port, o.Endpoint.Transport, payload.State))
+		}
+		if payload.State == model.EndpointOpen || payload.State == model.EndpointResponsive {
+			state.Reachability.State = model.ReachabilityConfirmed
+			state.Reachability.Reasons = appendUniqueReason(state.Reachability.Reasons, "udp.response")
 		}
 	default:
 		// Endpoint Open requires an explicit protocol match, not Completeness.

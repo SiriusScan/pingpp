@@ -5,6 +5,7 @@ package scan
 import (
 	"github.com/SiriusScan/ping++/pkg/discovery/icmp"
 	"github.com/SiriusScan/ping++/pkg/discovery/tcp"
+	"github.com/SiriusScan/ping++/pkg/discovery/udp"
 	"github.com/SiriusScan/ping++/pkg/engine"
 	"github.com/SiriusScan/ping++/pkg/protocol/amqp"
 	"github.com/SiriusScan/ping++/pkg/protocol/banner"
@@ -37,6 +38,7 @@ func NewRegistry() *engine.Registry {
 	return engine.BuildDefaultRegistry(
 		icmp.Register,
 		tcp.Register,
+		udp.Register,
 		tlscol.Register,
 		httpcol.Register,
 		sshcol.Register,
