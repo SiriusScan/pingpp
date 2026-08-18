@@ -6,6 +6,11 @@ import (
 )
 
 // LoadBuiltinPacks loads YAML fingerprint packs from the repo fingerprints/ tree.
+//
+// TODO: do not swallow LoadDir errors. NewEngine treats a nil return as
+// success, so bad YAML / invalid regex / unreadable dirs currently vanish.
+// Missing optional subdirectories can stay non-fatal; everything else must
+// fail closed. Replace runtime.Caller loading with go:embed.
 func (e *Engine) LoadBuiltinPacks(root string) error {
 	dirs := []string{
 		filepath.Join(root, "http"),

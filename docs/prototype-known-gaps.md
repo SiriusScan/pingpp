@@ -168,49 +168,35 @@ collect → interpret → re-plan → collect again if useful
 
 File paths are the current chassis, not an invitation to rewrite them in R1.
 
-### Engine does not own the scan
+### Engine owns the scan, with two remaining plumbing gaps
 
-`engine.ScanTarget` stops at observations. Callers assemble claims:
+`ScanTarget` now loads fingerprints, holds an artifact store, and writes fused
+claims onto the asset. `examples/scan` and the Sirius adapter no longer
+assemble a fingerprint engine.
 
-- `examples/scan/main.go` calls `fingerprint.NewEngine()`, `LoadBuiltinPacks`,
-  `Match`, `FuseOS`, then `AddClaim`.
-- `integration/appscanner/strategy.go` does the same, then appends raw claims
-  **and** `FuseOS` output, so weak original OS scores can survive.
+Still true:
 
-After R3, `engine.ScanTarget` must mean the complete configured fingerprint
-scan. Engine owns registry, fingerprint engine, artifacts, scheduler, planner,
-profile, and metrics.
+- **`NewEngine` error propagation is ineffective until `LoadBuiltinPacks`
+  stops swallowing pack errors.** `LoadDir` failures (bad YAML, invalid
+  regex, unreadable directory) are discarded and the function returns `nil`.
+  Built-in packing/`go:embed` is a later stage; do not treat the current
+  `if err := LoadBuiltinPacks` check as a real gate.
+- Collectors receive `CollectorInput.Artifacts` but mostly do not populate
+  the store yet. That is R10 plumbing, not a planner blocker.
 
-### Collector outcomes are unused
+### Collector outcomes
 
-`ProbeOutcome` exists in `pkg/engine/profile.go`
-(`success`, `no_match`, `refused`, `timeout`, `filtered`, `protocol_error`,
-`internal_error`) but collectors still return `([]ObservationRecord, error)`.
+`ProbeOutcome` is the planner's protocol-match signal (`success`, `no_match`,
+`refused`, `timeout`, `filtered`, `protocol_error`, `internal_error`).
 
-`ScanTarget` ignores non-context collector errors:
+`ResultCollector.RunResult` is what adaptive planning trusts. Legacy
+`Run([]Observation, error)` still records observations, but **Completeness
+must not be treated as protocol identity.** `protocolObservationConfirmed`
+is not the foundation of replanning.
 
-```go
-if err := e.runTask(...); err != nil && ctx.Err() != nil {
-    return nil, err
-}
-```
-
-NoMatch must not be Error. Timeout must not be InternalError. A valid negative
-response is not an error. Parser invariant violations are InternalError.
-
-Every protocol collector must answer “did the service speak this protocol?”,
-not merely “did the socket return bytes?”
-
-Known false-positive patterns:
-
-- FTP emits an `ftp` observation from a generic banner
-  (`pkg/protocol/ftp` → `textproto.CollectBanner`) without requiring a valid
-  reply code.
-- PostgreSQL treats any one-byte SSLRequest response as recognized
-  (`pkg/protocol/postgres`); only `S` or `N` should match.
-
-Protocol success must create endpoint-scoped `ClaimProtocol` centrally. Product
-fingerprints enrich that layer; they must not substitute for it.
+Production protocol collectors are not all `ResultCollector`s yet. Fake
+collectors prove the state machine first; each protocol conversion later
+emits Success vs NoMatch from a real handshake.
 
 ### Planner is one-shot and port-table driven
 
@@ -271,10 +257,11 @@ JSON.
 
 ### Fingerprint loading and schema
 
-`LoadBuiltinPacks` uses `runtime.Caller` and swallows missing-directory
-errors. Built-ins must be `go:embed`, validated at startup, with compiled
-regexes and rejected unknown fields. External `--fingerprint-dir` errors must
-surface.
+`LoadBuiltinPacks` uses `runtime.Caller` and swallows **every** `LoadDir`
+error, then always returns `nil`. `NewEngine` checks that error, so pack
+failures still disappear. Built-ins must be `go:embed`, validated at startup,
+with compiled regexes and rejected unknown fields. External `--fingerprint-dir`
+errors must surface.
 
 Title-only application rules are frequently `strong` around 88–92. Recalibrate:
 generic title keyword is hint/probable; native self-identification is
@@ -425,8 +412,6 @@ golangci-lint run ./...   # v2.12.2
 
 CI (`.github/workflows/ci.yml`) now runs build, vet, `go test -race`, and
 pinned `golangci-lint` v2.12.2 via `golangci-lint-action@v8`. Workflows also
-run on `cursor/**` pushes so the prototype branch gets a CI record even when
-a GitHub PR has not been opened yet. The Origin forge cannot create pull
-requests for this inbound GitHub-mirrored repository; open
-`cursor/ping-correctness-and-hygiene-d7fc` → `master` on GitHub
-(`SiriusScan/pingpp`) to get a reviewable PR.
+run on `cursor/**` pushes so this prototype branch gets a CI record. Open a
+GitHub PR from `cursor/ping-correctness-and-hygiene-d7fc` into `master` on
+`SiriusScan/pingpp` for review.

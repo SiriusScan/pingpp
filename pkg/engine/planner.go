@@ -172,6 +172,9 @@ func (p *Planner) taskIfAvailable(asset *model.Asset, ep *model.Endpoint, state 
 	if state != nil && state.IsComplete(key) {
 		return Task{}, false
 	}
+	if state != nil && state.IsRuledOut(ep.Key(), collectorProtocol(id)) {
+		return Task{}, false
+	}
 	if !p.registry.Has(id) {
 		return Task{}, false
 	}
@@ -183,6 +186,16 @@ func (p *Planner) taskIfAvailable(asset *model.Asset, ep *model.Endpoint, state 
 		Stage:       stage,
 		Priority:    md.Priority + portPriorBoost(ep.Port, id),
 	}, true
+}
+
+func collectorProtocol(collectorID string) string {
+	s := strings.TrimPrefix(collectorID, "collect.")
+	s = strings.TrimPrefix(s, "enumerate.")
+	s = strings.TrimPrefix(s, "discovery.")
+	if i := strings.IndexByte(s, '.'); i >= 0 {
+		s = s[:i]
+	}
+	return s
 }
 
 func strongProductClaim(asset *model.Asset, subject string) bool {

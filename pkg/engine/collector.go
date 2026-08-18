@@ -33,6 +33,24 @@ type Collector interface {
 	Run(context.Context, CollectorInput) ([]model.ObservationRecord, error)
 }
 
+// CollectorResult is the formal collector outcome. Planning must use Outcome,
+// never observation Completeness, as the protocol-match signal.
+type CollectorResult struct {
+	Outcome      ProbeOutcome
+	Protocol     string
+	Observations []model.ObservationRecord
+	NetworkOps   int
+	BytesRead    int64
+}
+
+// ResultCollector is the planner-facing collector API. Fake collectors in
+// tests implement this. Production protocol collectors still use Run until
+// they are converted; the engine will not treat their Completeness as a match.
+type ResultCollector interface {
+	Collector
+	RunResult(context.Context, CollectorInput) (CollectorResult, error)
+}
+
 // CollectorMetadata describes a collector for planning and registration.
 type CollectorMetadata struct {
 	ID           string            `json:"id"`
@@ -55,6 +73,8 @@ type CollectorInput struct {
 	State    *ScanState
 	// Timeout overrides the default when > 0.
 	Timeout time.Duration
+	// Extra holds per-task collector options (e.g. tls=1 after a TLS match).
+	Extra map[string]string
 	// Artifacts is the scan-local evidence store. Collectors may persist
 	// raw bodies, banners, and certificates without embedding them in JSON.
 	Artifacts artifact.Store
@@ -142,6 +162,16 @@ func (s *ScanState) HasProtocol(endpointKey, protocol string) bool {
 	s.mu.Lock()
 	defer s.mu.Unlock()
 	return s.Matched[endpointKey][protocol]
+}
+
+// IsRuledOut reports a negative protocol classification for an endpoint.
+func (s *ScanState) IsRuledOut(endpointKey, protocol string) bool {
+	if s == nil {
+		return false
+	}
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	return s.RuledOut[endpointKey][protocol]
 }
 
 // HasExclusiveProtocol reports whether an exclusive protocol was identified.

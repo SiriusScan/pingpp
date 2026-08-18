@@ -2,6 +2,7 @@ package engine
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"net"
 	"sort"
@@ -160,23 +161,15 @@ func (e *Engine) ScanTarget(ctx context.Context, raw string) (*ScanResult, error
 		sort.Slice(tasks, func(i, j int) bool {
 			return tasks[i].Priority > tasks[j].Priority
 		})
-		progress := false
 		for _, task := range tasks {
 			if !state.Budget.RemainingProbes() {
 				break
 			}
-			before := len(asset.Observations)
 			if err := e.runTask(ctx, task, asset, state); err != nil && ctx.Err() != nil {
 				return nil, err
 			}
-			if len(asset.Observations) > before {
-				progress = true
-			}
 		}
 		e.applyFingerprints(asset)
-		if !progress {
-			break
-		}
 	}
 
 	e.applyFingerprints(asset)
@@ -202,9 +195,10 @@ func (e *Engine) runTask(ctx context.Context, task Task, asset *model.Asset, sta
 		Target:    task.Target,
 		State:     state,
 		Timeout:   cfg.Timeout,
+		Extra:     task.Extra,
 		Artifacts: e.artifacts,
 	}
-	obs, err := c.Run(ctx, in)
+	result, err := executeCollector(ctx, c, in)
 	state.Budget.ConsumeProbe()
 	key := task.CollectorID
 	if task.Endpoint != nil {
@@ -213,38 +207,72 @@ func (e *Engine) runTask(ctx context.Context, task Task, asset *model.Asset, sta
 	state.MarkComplete(key)
 
 	if err != nil {
-		return err
+		if result.Outcome == "" {
+			result.Outcome = outcomeFromError(err)
+		}
+		if ctx.Err() != nil {
+			return err
+		}
 	}
-	for _, o := range obs {
+	applyCollectorOutcome(state, task, result)
+	for _, o := range result.Observations {
 		if o.AssetID == "" {
 			o.AssetID = asset.ID
 		}
 		asset.AddObservation(o)
-		applyObservationToAsset(asset, state, o)
-		noteObservationProtocol(state, o)
+		applyObservationToAsset(asset, state, o, result.Outcome)
 	}
 	return nil
 }
 
-func noteObservationProtocol(state *ScanState, o model.ObservationRecord) {
-	if state == nil || o.Endpoint == nil {
-		return
+func executeCollector(ctx context.Context, c Collector, in CollectorInput) (CollectorResult, error) {
+	if rc, ok := c.(ResultCollector); ok {
+		return rc.RunResult(ctx, in)
 	}
-	proto := protocolFromObservation(o)
-	if proto == "" {
-		return
+	obs, err := c.Run(ctx, in)
+	// Legacy collectors: record observations, but do not treat Completeness
+	// as a protocol match. Planning identity comes only from ProbeOutcome.
+	out := CollectorResult{Observations: obs}
+	if err != nil {
+		out.Outcome = outcomeFromError(err)
+		return out, err
 	}
-	key := model.EndpointKey(o.Endpoint.Address, o.Endpoint.Port, o.Endpoint.Transport)
-	match := protocolObservationConfirmed(o)
-	state.NoteProtocol(key, proto, match)
+	return out, nil
 }
 
-func protocolFromObservation(o model.ObservationRecord) string {
-	switch o.ObservationType {
-	case model.ObservationTCPEndpoint, model.ObservationICMPEcho, model.ObservationBanner, "tcp.stack":
+func applyCollectorOutcome(state *ScanState, task Task, result CollectorResult) {
+	if state == nil || task.Endpoint == nil {
+		return
+	}
+	proto := result.Protocol
+	if proto == "" {
+		proto = collectorProtocol(task.CollectorID)
+	}
+	switch result.Outcome {
+	case OutcomeSuccess:
+		state.NoteProtocol(task.Endpoint.Key(), proto, true)
+	case OutcomeNoMatch:
+		state.NoteProtocol(task.Endpoint.Key(), proto, false)
+	}
+}
+
+func outcomeFromError(err error) ProbeOutcome {
+	if err == nil {
 		return ""
+	}
+	if errors.Is(err, context.Canceled) || errors.Is(err, context.DeadlineExceeded) {
+		return OutcomeTimeout
+	}
+	msg := strings.ToLower(err.Error())
+	switch {
+	case strings.Contains(msg, "timeout") || strings.Contains(msg, "deadline"):
+		return OutcomeTimeout
+	case strings.Contains(msg, "refused"):
+		return OutcomeRefused
+	case strings.Contains(msg, "filtered") || strings.Contains(msg, "no route") || strings.Contains(msg, "unreachable"):
+		return OutcomeFiltered
 	default:
-		return o.ObservationType
+		return OutcomeInternalError
 	}
 }
 
@@ -265,7 +293,7 @@ func (e *Engine) applyFingerprints(asset *model.Asset) {
 	}
 }
 
-func applyObservationToAsset(asset *model.Asset, state *ScanState, o model.ObservationRecord) {
+func applyObservationToAsset(asset *model.Asset, state *ScanState, o model.ObservationRecord, outcome ProbeOutcome) {
 	switch o.ObservationType {
 	case model.ObservationICMPEcho:
 		if o.Error == "" {
@@ -293,25 +321,13 @@ func applyObservationToAsset(asset *model.Asset, state *ScanState, o model.Obser
 			state.Reachability.Reasons = appendUniqueReason(state.Reachability.Reasons, "tcp.rst")
 		}
 	default:
-		if protocolObservationConfirmed(o) {
+		// Endpoint Open requires an explicit protocol match, not Completeness.
+		if outcome == OutcomeSuccess && o.Endpoint != nil {
 			asset.AddEndpoint(model.NewEndpoint(o.Endpoint.Address, o.Endpoint.Port, o.Endpoint.Transport, model.EndpointOpen))
 			state.Reachability.State = model.ReachabilityConfirmed
 			state.Reachability.Reasons = appendUniqueReason(state.Reachability.Reasons, "tcp.service")
 		}
 	}
-}
-
-// protocolObservationConfirmed reports whether a collector proved a service
-// spoke — not merely that TCP connect succeeded.
-func protocolObservationConfirmed(o model.ObservationRecord) bool {
-	if o.Error != "" || o.Endpoint == nil {
-		return false
-	}
-	switch o.ObservationType {
-	case model.ObservationTCPEndpoint, model.ObservationICMPEcho, "tcp.stack":
-		return false
-	}
-	return o.Completeness == "full" || o.Completeness == "partial"
 }
 
 func appendUniqueReason(slice []string, v string) []string {

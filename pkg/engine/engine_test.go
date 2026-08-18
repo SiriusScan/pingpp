@@ -149,13 +149,22 @@ func TestProtocolConfirmPromotesEndpointOpen(t *testing.T) {
 		t.Fatal(err)
 	}
 	var state model.EndpointState
+	var sawHTTP bool
 	for _, ep := range res.Asset.Endpoints {
 		if ep.Port == 8080 {
 			state = ep.State
 		}
 	}
-	if state != model.EndpointOpen {
-		t.Fatalf("HTTP-confirmed port state=%q want open, endpoints=%+v", state, res.Asset.Endpoints)
+	for _, o := range res.Asset.Observations {
+		if o.ObservationType == model.ObservationHTTP {
+			sawHTTP = true
+		}
+	}
+	if state != model.EndpointResponsive && state != model.EndpointOpen {
+		t.Fatalf("enumerated HTTP prior state=%q, endpoints=%+v", state, res.Asset.Endpoints)
+	}
+	if !sawHTTP {
+		t.Fatal("expected collect.http observation even before HTTP emits ProbeOutcome")
 	}
 }
 
