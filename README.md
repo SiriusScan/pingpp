@@ -270,13 +270,20 @@ go test ./...
 
 ### Running locally
 
-```bash
-# With ICMP (requires root)
-sudo go run ./cmd/pingpp -t 127.0.0.1
+There is no `cmd/pingpp` binary yet. Use the enumeration example:
 
-# Without ICMP
-go run ./cmd/pingpp -t 127.0.0.1 -no-icmp
+```bash
+# Hostname or URL — protocol-confirmed services only
+go run ./examples/scan -t https://n8n.example.com/
+
+# Registrable domain seed (apex + www)
+go run ./examples/scan -seed example.com
+
+# Faster 5-port profile, machine-readable report
+go run ./examples/scan -profile quick -json -o report.json 10.0.0.5
 ```
+
+ICMP discovery needs root and is skipped automatically when unprivileged. TCP connect-open is not treated as a service: the example reports protocol-confirmed endpoints separately from accept-all middleboxes.
 
 ## Dependencies
 
