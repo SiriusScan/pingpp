@@ -8,6 +8,7 @@ import (
 	"sort"
 	"strings"
 	"sync"
+	"time"
 
 	"github.com/SiriusScan/ping++/pkg/artifact"
 	"github.com/SiriusScan/ping++/pkg/fingerprint"
@@ -23,15 +24,16 @@ type Matcher interface {
 
 // Engine orchestrates staged scan execution via the planner and registry.
 type Engine struct {
-	registry     *Registry
-	profile      Profile
-	planner      *Planner
-	limiter      *RateLimiter
-	scheduler    *Scheduler
-	fingerprints Matcher
-	artifacts    artifact.Store
-	metrics      *metrics.Counters
-	mu           sync.Mutex
+	registry       *Registry
+	profile        Profile
+	planner        *Planner
+	limiter        *RateLimiter
+	networkLimiter *transport.Limiter
+	scheduler      *Scheduler
+	fingerprints   Matcher
+	artifacts      artifact.Store
+	metrics        *metrics.Counters
+	mu             sync.Mutex
 }
 
 // Options configures an Engine.
@@ -40,36 +42,52 @@ type Options struct {
 	SkipDiscovery bool
 	// SkipICMP removes ICMP discovery only. TCP discovery still runs.
 	SkipICMP bool
+	// DisableICMP is the scan.Config name for SkipICMP (Runner V2 contract).
+	DisableICMP bool
 	// ProbeTypes filters discovery/enumeration/protocol collectors when set
 	// (icmp, tcp, udp, ssh, http, smb, ...). Empty means the full Engine set.
-	ProbeTypes    []string
-	TCPPorts      []uint16
-	UDPPorts      []uint16
-	RatePerSecond int
-	Registry      *Registry
+	ProbeTypes []string
+	TCPPorts   []uint16
+	UDPPorts   []uint16
+	// OverrideTCPPorts applies TCPPorts even when the slice is empty (disable TCP enum).
+	OverrideTCPPorts bool
+	// OverrideUDPPorts applies UDPPorts even when the slice is empty (disable UDP enum).
+	OverrideUDPPorts bool
+	RatePerSecond    int
+	ProbeTimeout     time.Duration
+	HTTPTimeout      time.Duration
+	// MaxConcurrentPerHost overrides profile per-host collector concurrency when > 0.
+	MaxConcurrentPerHost int
+	MaxProbesPerHost     int
+	Registry             *Registry
 	// MaxNetworkOps overrides the profile network-operation budget when > 0.
 	MaxNetworkOps int
 	// Fingerprints overrides the built-in fingerprint engine when set.
 	Fingerprints Matcher
 	// FingerprintDir loads extra YAML packs after built-ins.
 	FingerprintDir string
+	// FingerprintDirs loads additional extra YAML pack directories after FingerprintDir.
+	FingerprintDirs []string
 	// Artifacts overrides the in-memory artifact store when set.
 	Artifacts artifact.Store
 	// Metrics overrides runtime counters when set.
 	Metrics *metrics.Counters
+	// NetworkLimiter is the run-wide network-op limiter (C7). Nil means unlimited.
+	NetworkLimiter *transport.Limiter
 }
 
-// NewEngine builds an engine with the given options and registry.
-func NewEngine(opts Options) (*Engine, error) {
-	if opts.Registry == nil {
-		return nil, fmt.Errorf("registry required")
-	}
-	profile := ProfileFor(opts.Profile)
-	profile = applyEngineOptions(profile, opts)
-	if len(opts.TCPPorts) > 0 {
+// PrepareProfile applies Options onto a named Profile. scan.Config compiles
+// into Options, then this function is the single bind path for port tri-state.
+func PrepareProfile(opts Options) Profile {
+	profile := applyEngineOptions(ProfileFor(opts.Profile), opts)
+	if opts.OverrideTCPPorts {
+		profile.TCPPorts = append([]uint16(nil), opts.TCPPorts...)
+	} else if len(opts.TCPPorts) > 0 {
 		profile.TCPPorts = append([]uint16(nil), opts.TCPPorts...)
 	}
-	if len(opts.UDPPorts) > 0 {
+	if opts.OverrideUDPPorts {
+		profile.UDPPorts = append([]uint16(nil), opts.UDPPorts...)
+	} else if len(opts.UDPPorts) > 0 {
 		profile.UDPPorts = append([]uint16(nil), opts.UDPPorts...)
 	}
 	if opts.RatePerSecond > 0 {
@@ -78,6 +96,27 @@ func NewEngine(opts Options) (*Engine, error) {
 	if opts.MaxNetworkOps > 0 {
 		profile.Budget.MaxNetworkOps = opts.MaxNetworkOps
 	}
+	if opts.ProbeTimeout > 0 {
+		profile.Budget.ProbeTimeout = opts.ProbeTimeout
+	}
+	if opts.HTTPTimeout > 0 {
+		profile.Budget.HTTPTimeout = opts.HTTPTimeout
+	}
+	if opts.MaxConcurrentPerHost > 0 {
+		profile.Budget.MaxConcurrentPerHost = opts.MaxConcurrentPerHost
+	}
+	if opts.MaxProbesPerHost > 0 {
+		profile.Budget.MaxProbesPerHost = opts.MaxProbesPerHost
+	}
+	return profile
+}
+
+// NewEngine builds an engine with the given options and registry.
+func NewEngine(opts Options) (*Engine, error) {
+	if opts.Registry == nil {
+		return nil, fmt.Errorf("registry required")
+	}
+	profile := PrepareProfile(opts)
 	store := opts.Artifacts
 	if store == nil {
 		store = artifact.NewMemoryStore(profile.Budget.MaxArtifactBytes)
@@ -89,9 +128,13 @@ func NewEngine(opts Options) (*Engine, error) {
 		if err := eng.LoadBuiltinPacks(); err != nil {
 			return nil, fmt.Errorf("load builtin fingerprints: %w", err)
 		}
+		dirs := opts.FingerprintDirs
 		if opts.FingerprintDir != "" {
-			if err := eng.LoadDir(opts.FingerprintDir); err != nil {
-				return nil, fmt.Errorf("fingerprint dir %s: %w", opts.FingerprintDir, err)
+			dirs = append([]string{opts.FingerprintDir}, dirs...)
+		}
+		for _, dir := range dirs {
+			if err := eng.LoadDir(dir); err != nil {
+				return nil, fmt.Errorf("fingerprint dir %s: %w", dir, err)
 			}
 		}
 		fp = eng
@@ -101,14 +144,15 @@ func NewEngine(opts Options) (*Engine, error) {
 		counters = &metrics.Counters{}
 	}
 	return &Engine{
-		registry:     opts.Registry,
-		profile:      profile,
-		planner:      NewPlanner(opts.Registry, profile),
-		limiter:      NewRateLimiter(profile.Budget.RatePerSecond),
-		scheduler:    NewScheduler(profile.Budget.RatePerSecond, profile.Budget.MaxConcurrentPerHost),
-		fingerprints: fp,
-		artifacts:    store,
-		metrics:      counters,
+		registry:       opts.Registry,
+		profile:        profile,
+		planner:        NewPlanner(opts.Registry, profile),
+		limiter:        NewRateLimiter(profile.Budget.RatePerSecond),
+		networkLimiter: opts.NetworkLimiter,
+		scheduler:      NewScheduler(profile.Budget.RatePerSecond, profile.Budget.MaxConcurrentPerHost),
+		fingerprints:   fp,
+		artifacts:      store,
+		metrics:        counters,
 	}, nil
 }
 
@@ -116,7 +160,7 @@ func applyEngineOptions(profile Profile, opts Options) Profile {
 	if opts.SkipDiscovery {
 		profile.SkipDiscovery = true
 	}
-	if opts.SkipICMP {
+	if opts.SkipICMP || opts.DisableICMP {
 		profile.DiscoveryCollectors = filterCollectorIDs(profile.DiscoveryCollectors, "discovery.icmp")
 	}
 	if len(opts.ProbeTypes) == 0 {
@@ -128,7 +172,7 @@ func applyEngineOptions(profile Profile, opts Options) Profile {
 	}
 	var allow []string
 	var disc []string
-	if has["icmp"] && !opts.SkipICMP && !opts.SkipDiscovery {
+	if has["icmp"] && !opts.SkipICMP && !opts.DisableICMP && !opts.SkipDiscovery {
 		disc = append(disc, "discovery.icmp")
 		allow = append(allow, "discovery.icmp")
 	}
@@ -440,6 +484,9 @@ func (e *Engine) runTask(ctx context.Context, task Task, asset *model.Asset, sta
 	}
 	if state != nil && state.Meter != nil {
 		ctx = transport.WithMeter(ctx, state.Meter)
+	}
+	if e.networkLimiter != nil {
+		ctx = transport.WithLimiter(ctx, e.networkLimiter)
 	}
 	result, err := executeCollector(ctx, c, in)
 

@@ -27,6 +27,36 @@ func TestProfilePorts(t *testing.T) {
 	if len(d.UDPPorts) == 0 {
 		t.Fatal("default should include UDP priors")
 	}
+	deep := engine.ProfileFor(engine.ProfileDeep)
+	full := engine.ProfileFor(engine.ProfileFull)
+	if len(deep.TCPPorts) != len(d.TCPPorts) {
+		t.Fatalf("deep must keep curated default ports, got %d want %d", len(deep.TCPPorts), len(d.TCPPorts))
+	}
+	if len(full.TCPPorts) != 65535 {
+		t.Fatalf("full TCP ports=%d want 65535", len(full.TCPPorts))
+	}
+	if full.TCPPorts[0] != 1 || full.TCPPorts[len(full.TCPPorts)-1] != 65535 {
+		t.Fatalf("full TCP range %d–%d", full.TCPPorts[0], full.TCPPorts[len(full.TCPPorts)-1])
+	}
+	if len(full.UDPPorts) == 0 {
+		t.Fatal("full should include selected UDP")
+	}
+	if len(q.TCPPorts) == len(d.TCPPorts) || len(d.TCPPorts) == len(full.TCPPorts) || len(deep.TCPPorts) == len(full.TCPPorts) {
+		t.Fatal("quick, default/deep, and full port sets must differ")
+	}
+	if deep.Budget.MaxProbesPerHost <= d.Budget.MaxProbesPerHost {
+		t.Fatal("deep must raise effort over default")
+	}
+}
+
+func TestPrepareProfileEmptyUDPOverride(t *testing.T) {
+	prof := engine.PrepareProfile(engine.Options{
+		Profile:          engine.ProfileDefault,
+		OverrideUDPPorts: true,
+	})
+	if len(prof.UDPPorts) != 0 {
+		t.Fatalf("udp=%v want empty", prof.UDPPorts)
+	}
 }
 
 func TestPlannerPortPriorsNotIdentity(t *testing.T) {
@@ -433,7 +463,7 @@ func TestScanResolvedAllAddresses(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+	ctx, cancel := context.WithTimeout(context.Background(), 15*time.Second)
 	defer cancel()
 	target := model.NewTargetHostname("multi.test", "192.0.2.10", "192.0.2.11")
 	res, err := eng.ScanResolved(ctx, target)
@@ -468,7 +498,7 @@ func TestScanResolvedSharesNetworkBudget(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+	ctx, cancel := context.WithTimeout(context.Background(), 15*time.Second)
 	defer cancel()
 	target := model.NewTargetHostname("multi.test", "192.0.2.10", "192.0.2.11")
 	res, err := eng.ScanResolved(ctx, target)

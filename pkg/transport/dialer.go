@@ -32,6 +32,11 @@ func dial(ctx context.Context, network, address string, port uint16, timeout tim
 }
 
 func recordDial(ctx context.Context) error {
+	if l := ContextLimiter(ctx); l != nil {
+		if err := l.Wait(ctx); err != nil {
+			return err
+		}
+	}
 	if m := ContextMeter(ctx); m != nil {
 		return m.AddDial()
 	}

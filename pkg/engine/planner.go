@@ -64,6 +64,12 @@ func (p *Planner) PlanEnumeration(asset *model.Asset, target *model.Target, stat
 		if id != "enumerate.tcp" && id != "enumerate.udp" {
 			continue
 		}
+		if id == "enumerate.tcp" && len(p.profile.TCPPorts) == 0 {
+			continue
+		}
+		if id == "enumerate.udp" && len(p.profile.UDPPorts) == 0 {
+			continue
+		}
 		if state != nil && state.IsComplete(hostCollectorKey(id, target)) {
 			continue
 		}

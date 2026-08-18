@@ -4,14 +4,24 @@ import (
 	"errors"
 	"fmt"
 	"io/fs"
+	"sync/atomic"
 
 	"github.com/SiriusScan/ping++/fingerprints"
 	"github.com/SiriusScan/ping++/pkg/fingerprint/adapters"
 )
 
+var builtinLoadCount atomic.Int64
+
+// BuiltinLoadCount is the number of times LoadBuiltinPacks has run in this
+// process. Session tests use it to prove the corpus loads once per Session.
+func BuiltinLoadCount() int64 {
+	return builtinLoadCount.Load()
+}
+
 // LoadBuiltinPacks loads YAML packs and Recog/Wappalyzer corpora from the
 // embedded filesystem. A released binary does not need the source tree.
 func (e *Engine) LoadBuiltinPacks() error {
+	builtinLoadCount.Add(1)
 	return e.LoadFS(fingerprints.FS)
 }
 

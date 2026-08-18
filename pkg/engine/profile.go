@@ -1,6 +1,9 @@
 package engine
 
-import "time"
+import (
+	"sync"
+	"time"
+)
 
 // ProbeOutcome distinguishes collector results without collapsing everything
 // into Success bool + Error string.
@@ -23,6 +26,9 @@ const (
 	ProfileQuick   ProfileName = "quick"
 	ProfileDefault ProfileName = "default"
 	ProfileDeep    ProfileName = "deep"
+	// ProfileFull enumerates TCP 1–65535 plus selected UDP. It is never a
+	// default; dedicated stress evidence is required before production use.
+	ProfileFull ProfileName = "full"
 )
 
 // Profile is planner/budget configuration — not a separate implementation.
@@ -91,6 +97,36 @@ var DefaultPorts = []uint16{
 // DefaultUDPPorts is the narrow UDP set (PRD §19).
 var DefaultUDPPorts = []uint16{53, 123, 161, 500, 1900, 4500, 5353}
 
+var (
+	fullTCPOnce  sync.Once
+	fullTCPPorts []uint16
+)
+
+// FullTCPPorts returns TCP 1–65535 generated once (not a 65,535-literal).
+func FullTCPPorts() []uint16 {
+	fullTCPOnce.Do(func() {
+		fullTCPPorts = make([]uint16, 65535)
+		for i := range fullTCPPorts {
+			fullTCPPorts[i] = uint16(i + 1)
+		}
+	})
+	return append([]uint16(nil), fullTCPPorts...)
+}
+
+// KnownProfile reports whether name is a supported profile (including empty → default).
+func KnownProfile(name ProfileName) bool {
+	switch name {
+	case "", ProfileDefault, ProfileQuick, ProfileDeep, ProfileFull:
+		return true
+	default:
+		return false
+	}
+}
+
+func defaultCollectCollectors() []string {
+	return []string{"enumerate.tcp", "enumerate.udp", "collect.tls", "collect.http", "collect.ssh", "collect.smb"}
+}
+
 // ProfileFor returns planner configuration for a named profile.
 func ProfileFor(name ProfileName) Profile {
 	b := DefaultBudget()
@@ -112,7 +148,20 @@ func ProfileFor(name ProfileName) Profile {
 			TCPPorts:            append([]uint16(nil), DefaultPorts...),
 			UDPPorts:            append([]uint16(nil), DefaultUDPPorts...),
 			DiscoveryCollectors: []string{"discovery.icmp", "discovery.tcp"},
-			CollectCollectors:   []string{"enumerate.tcp", "enumerate.udp", "collect.tls", "collect.http", "collect.ssh", "collect.smb"},
+			CollectCollectors:   defaultCollectCollectors(),
+			Budget:              b,
+		}
+	case ProfileFull:
+		b.MaxProbesPerHost = 1024
+		b.MaxRequestsPerEndpoint = 16
+		b.MaxConcurrentPerHost = 32
+		b.MaxNetworkOps = 70000
+		return Profile{
+			Name:                ProfileFull,
+			TCPPorts:            FullTCPPorts(),
+			UDPPorts:            append([]uint16(nil), DefaultUDPPorts...),
+			DiscoveryCollectors: []string{"discovery.icmp", "discovery.tcp"},
+			CollectCollectors:   defaultCollectCollectors(),
 			Budget:              b,
 		}
 	default:
@@ -121,7 +170,7 @@ func ProfileFor(name ProfileName) Profile {
 			TCPPorts:            append([]uint16(nil), DefaultPorts...),
 			UDPPorts:            append([]uint16(nil), DefaultUDPPorts...),
 			DiscoveryCollectors: []string{"discovery.icmp", "discovery.tcp"},
-			CollectCollectors:   []string{"enumerate.tcp", "enumerate.udp", "collect.tls", "collect.http", "collect.ssh", "collect.smb"},
+			CollectCollectors:   defaultCollectCollectors(),
 			Budget:              b,
 		}
 	}

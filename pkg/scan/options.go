@@ -14,19 +14,12 @@ type ScanOptions struct {
 	UseLegacyRunner bool
 }
 
-// Scan runs the Engine pipeline for one target string.
+// Scan runs the Engine pipeline for one target string via a one-shot Session.
 func Scan(ctx context.Context, target string, opts ScanOptions) (*engine.ScanResult, error) {
-	if opts.Registry == nil {
-		opts.Registry = NewRegistry()
-	}
-	eng, err := engine.NewEngine(opts.Options)
+	session, err := NewSession(ConfigFromScanOptions(opts))
 	if err != nil {
 		return nil, err
 	}
-	if opts.Timeout > 0 {
-		var cancel context.CancelFunc
-		ctx, cancel = context.WithTimeout(ctx, opts.Timeout)
-		defer cancel()
-	}
-	return eng.ScanTarget(ctx, target)
+	defer func() { _ = session.Close() }()
+	return session.Scan(ctx, target)
 }
