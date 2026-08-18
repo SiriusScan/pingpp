@@ -424,4 +424,9 @@ golangci-lint run ./...   # v2.12.2
 ```
 
 CI (`.github/workflows/ci.yml`) now runs build, vet, `go test -race`, and
-pinned `golangci-lint` v2.12.2 via `golangci-lint-action@v8`.
+pinned `golangci-lint` v2.12.2 via `golangci-lint-action@v8`. Workflows also
+run on `cursor/**` pushes so the prototype branch gets a CI record even when
+a GitHub PR has not been opened yet. The Origin forge cannot create pull
+requests for this inbound GitHub-mirrored repository; open
+`cursor/ping-correctness-and-hygiene-d7fc` → `master` on GitHub
+(`SiriusScan/pingpp`) to get a reviewable PR.
