@@ -4,6 +4,7 @@ import (
 	"context"
 	"net"
 	"net/http"
+	"sync/atomic"
 	"testing"
 	"time"
 
@@ -274,6 +275,71 @@ func TestBudgetStopsProbes(t *testing.T) {
 	if b.RemainingProbes() {
 		t.Fatal("budget exhausted should not remain")
 	}
+}
+
+func TestNetworkBudgetStopsLaterCollectors(t *testing.T) {
+	ln, err := net.Listen("tcp", "127.0.0.1:0")
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer func() { _ = ln.Close() }()
+	go func() {
+		for {
+			c, err := ln.Accept()
+			if err != nil {
+				return
+			}
+			_ = c.Close()
+		}
+	}()
+	port := uint16(ln.Addr().(*net.TCPAddr).Port)
+
+	reg := engine.BuildDefaultRegistry(icmp.Register, tcp.Register)
+	var classifyRuns atomic.Int32
+	reg.MustRegister("collect.http", func(cfg engine.Config) (engine.Collector, error) {
+		return countingCollector{id: "collect.http", n: &classifyRuns}, nil
+	})
+	reg.MustRegister("collect.banner", func(cfg engine.Config) (engine.Collector, error) {
+		return countingCollector{id: "collect.banner", n: &classifyRuns}, nil
+	})
+
+	eng, err := engine.NewEngine(engine.Options{
+		Profile:       engine.ProfileQuick,
+		SkipDiscovery: true,
+		TCPPorts:      []uint16{port, port + 1, port + 2, port + 3},
+		RatePerSecond: 1000,
+		Registry:      reg,
+		MaxNetworkOps: 1,
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+	defer cancel()
+	res, err := eng.ScanTarget(ctx, "127.0.0.1")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if res.State.Budget.NetworkOps < 1 {
+		t.Fatalf("expected network ops from enumerate, got %d", res.State.Budget.NetworkOps)
+	}
+	if classifyRuns.Load() != 0 {
+		t.Fatalf("classification should not run after network budget is spent, runs=%d", classifyRuns.Load())
+	}
+}
+
+type countingCollector struct {
+	id string
+	n  *atomic.Int32
+}
+
+func (c countingCollector) Metadata() engine.CollectorMetadata {
+	return engine.CollectorMetadata{ID: c.id, Stage: engine.StageCollect, Priority: 50, Cost: 1}
+}
+
+func (c countingCollector) Run(ctx context.Context, in engine.CollectorInput) ([]model.ObservationRecord, error) {
+	c.n.Add(1)
+	return nil, nil
 }
 
 func TestRateLimiter(t *testing.T) {

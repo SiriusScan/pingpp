@@ -49,6 +49,9 @@ type Budget struct {
 	RatePerSecond          int
 	ProbesUsed             int
 	BytesUsed              int64
+	MaxNetworkOps          int
+	NetworkOps             int
+	Connections            int
 }
 
 // DefaultBudget returns conservative starting defaults from the PRD.
@@ -63,6 +66,7 @@ func DefaultBudget() Budget {
 		ProbeTimeout:           3 * time.Second,
 		HTTPTimeout:            5 * time.Second,
 		RatePerSecond:          100,
+		MaxNetworkOps:          1024,
 	}
 }
 
@@ -120,7 +124,7 @@ func ProfileFor(name ProfileName) Profile {
 	}
 }
 
-// RemainingProbes reports whether the budget allows another probe.
+// RemainingProbes reports whether the budget allows another collector run.
 func (b *Budget) RemainingProbes() bool {
 	if b.MaxProbesPerHost <= 0 {
 		return true
@@ -128,7 +132,31 @@ func (b *Budget) RemainingProbes() bool {
 	return b.ProbesUsed < b.MaxProbesPerHost
 }
 
-// ConsumeProbe increments the probe counter.
+// RemainingNetworkOps reports whether another dial/packet is allowed.
+func (b *Budget) RemainingNetworkOps() bool {
+	if b.MaxNetworkOps <= 0 {
+		return true
+	}
+	return b.NetworkOps < b.MaxNetworkOps
+}
+
+// Remaining reports whether collector or network budget remains.
+func (b *Budget) Remaining() bool {
+	return b.RemainingProbes() && b.RemainingNetworkOps()
+}
+
+// ConsumeProbe increments the collector-run counter.
 func (b *Budget) ConsumeProbe() {
 	b.ProbesUsed++
+}
+
+// ConsumeNetwork adds dial/byte accounting from a collector result.
+func (b *Budget) ConsumeNetwork(ops int, bytes int64) {
+	if ops > 0 {
+		b.NetworkOps += ops
+		b.Connections += ops
+	}
+	if bytes > 0 {
+		b.BytesUsed += bytes
+	}
 }

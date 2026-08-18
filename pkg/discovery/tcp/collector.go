@@ -3,14 +3,15 @@ package tcp
 
 import (
 	"context"
+	"errors"
 	"fmt"
-	"net"
-	"strconv"
 	"strings"
+	"sync"
 	"time"
 
 	"github.com/SiriusScan/ping++/pkg/engine"
 	"github.com/SiriusScan/ping++/pkg/model"
+	"github.com/SiriusScan/ping++/pkg/transport"
 )
 
 const (
@@ -23,14 +24,16 @@ var DefaultPorts = []uint16{22, 80, 443, 135, 139, 445, 3389, 548}
 
 // DiscoveryCollector checks whether any configured port responds (connect or RST).
 type DiscoveryCollector struct {
-	timeout time.Duration
-	ports   []uint16
+	timeout     time.Duration
+	ports       []uint16
+	concurrency int
 }
 
 // EnumerateCollector probes every configured port and emits per-endpoint observations.
 type EnumerateCollector struct {
-	timeout time.Duration
-	ports   []uint16
+	timeout     time.Duration
+	ports       []uint16
+	concurrency int
 }
 
 func portsFromConfig(cfg engine.Config) []uint16 {
@@ -40,19 +43,28 @@ func portsFromConfig(cfg engine.Config) []uint16 {
 	return append([]uint16(nil), DefaultPorts...)
 }
 
+func concurrencyFromConfig(cfg engine.Config) int {
+	if cfg.Concurrency > 0 {
+		return cfg.Concurrency
+	}
+	return 8
+}
+
 // NewDiscovery creates a TCP discovery collector.
 func NewDiscovery(cfg engine.Config) (*DiscoveryCollector, error) {
 	return &DiscoveryCollector{
-		timeout: engine.EffectiveTimeout(cfg),
-		ports:   portsFromConfig(cfg),
+		timeout:     engine.EffectiveTimeout(cfg),
+		ports:       portsFromConfig(cfg),
+		concurrency: concurrencyFromConfig(cfg),
 	}, nil
 }
 
 // NewEnumerate creates a TCP enumeration collector.
 func NewEnumerate(cfg engine.Config) (*EnumerateCollector, error) {
 	return &EnumerateCollector{
-		timeout: engine.EffectiveTimeout(cfg),
-		ports:   portsFromConfig(cfg),
+		timeout:     engine.EffectiveTimeout(cfg),
+		ports:       portsFromConfig(cfg),
+		concurrency: concurrencyFromConfig(cfg),
 	}, nil
 }
 
@@ -86,15 +98,21 @@ func (c *EnumerateCollector) Metadata() engine.CollectorMetadata {
 
 // Run implements engine.Collector for discovery: one summary observation.
 func (c *DiscoveryCollector) Run(ctx context.Context, in engine.CollectorInput) ([]model.ObservationRecord, error) {
-	return runPorts(ctx, in, c.ports, c.timeout, discoveryID, false)
+	return runPorts(ctx, in, c.ports, c.timeout, c.concurrency, discoveryID, false)
 }
 
 // Run implements engine.Collector for enumeration: per-port observations.
 func (c *EnumerateCollector) Run(ctx context.Context, in engine.CollectorInput) ([]model.ObservationRecord, error) {
-	return runPorts(ctx, in, c.ports, c.timeout, enumerationID, true)
+	return runPorts(ctx, in, c.ports, c.timeout, c.concurrency, enumerationID, true)
 }
 
-func runPorts(ctx context.Context, in engine.CollectorInput, ports []uint16, timeout time.Duration, probeID string, perPort bool) ([]model.ObservationRecord, error) {
+type portHit struct {
+	port    uint16
+	state   model.EndpointState
+	latency time.Duration
+}
+
+func runPorts(ctx context.Context, in engine.CollectorInput, ports []uint16, timeout time.Duration, concurrency int, probeID string, perPort bool) ([]model.ObservationRecord, error) {
 	ip := in.PrimaryIP()
 	if ip == "" {
 		return nil, fmt.Errorf("tcp: no target IP")
@@ -102,55 +120,49 @@ func runPorts(ctx context.Context, in engine.CollectorInput, ports []uint16, tim
 	if in.Timeout > 0 {
 		timeout = in.Timeout
 	}
+	hits := probePorts(ctx, ip, ports, timeout, concurrency)
+	cancelled := ctx.Err()
 
 	var observations []model.ObservationRecord
 	var anyConnect, anyRST bool
-
-	for _, port := range ports {
-		select {
-		case <-ctx.Done():
-			return observations, ctx.Err()
-		default:
+	for _, hit := range hits {
+		if hit.state == "" {
+			continue
 		}
-
-		state, latency := dialPort(ip, port, timeout)
-		if state == model.EndpointResponsive {
+		if hit.state == model.EndpointResponsive {
 			anyConnect = true
 		}
-		if state == model.EndpointClosed {
+		if hit.state == model.EndpointClosed {
 			anyRST = true
 		}
-
 		if !perPort {
 			continue
 		}
-
-		ep := model.NewEndpoint(ip, port, model.TransportTCP, state)
+		ep := model.NewEndpoint(ip, hit.port, model.TransportTCP, hit.state)
 		ref := ep.Ref()
 		obs := model.ObservationRecord{
-			ID:               fmt.Sprintf("obs:tcp:%s:%d:%d", ip, port, time.Now().UnixNano()),
+			ID:               fmt.Sprintf("obs:tcp:%s:%d:%d", ip, hit.port, time.Now().UnixNano()),
 			ProbeID:          probeID,
 			ObservationType:  model.ObservationTCPEndpoint,
 			Endpoint:         &ref,
 			Timestamp:        time.Now().UTC(),
-			CorrelationGroup: fmt.Sprintf("tcp:%s:%d", ip, port),
+			CorrelationGroup: fmt.Sprintf("tcp:%s:%d", ip, hit.port),
 			Completeness:     "full",
 		}
 		if in.Asset != nil {
 			obs.AssetID = in.Asset.ID
 		}
 		_ = obs.SetPayload(model.TCPEndpointObservation{
-			State:   state,
-			Latency: latency.String(),
+			State:   hit.state,
+			Latency: hit.latency.String(),
 		})
 		observations = append(observations, obs)
 	}
 
 	if perPort {
-		return observations, nil
+		return observations, cancelled
 	}
 
-	// Discovery summary
 	obs := model.ObservationRecord{
 		ID:               fmt.Sprintf("obs:tcp-discovery:%s:%d", ip, time.Now().UnixNano()),
 		ProbeID:          probeID,
@@ -174,20 +186,66 @@ func runPorts(ctx context.Context, in engine.CollectorInput, ports []uint16, tim
 		obs.Error = "no tcp response"
 	}
 	_ = obs.SetPayload(model.TCPEndpointObservation{State: state})
-	return []model.ObservationRecord{obs}, nil
+	return []model.ObservationRecord{obs}, cancelled
 }
 
-func dialPort(ip string, port uint16, timeout time.Duration) (model.EndpointState, time.Duration) {
-	addr := net.JoinHostPort(ip, strconv.Itoa(int(port)))
+func probePorts(ctx context.Context, ip string, ports []uint16, timeout time.Duration, concurrency int) []portHit {
+	hits := make([]portHit, len(ports))
+	if len(ports) == 0 {
+		return hits
+	}
+	workers := concurrency
+	if workers < 1 {
+		workers = 1
+	}
+	if workers > len(ports) {
+		workers = len(ports)
+	}
+
+	jobs := make(chan int)
+	var wg sync.WaitGroup
+	wg.Add(workers)
+	for i := 0; i < workers; i++ {
+		go func() {
+			defer wg.Done()
+			for idx := range jobs {
+				if ctx.Err() != nil {
+					hits[idx] = portHit{port: ports[idx], state: model.EndpointUnknown}
+					continue
+				}
+				state, latency := dialPort(ctx, ip, ports[idx], timeout)
+				hits[idx] = portHit{port: ports[idx], state: state, latency: latency}
+			}
+		}()
+	}
+
+	for i := range ports {
+		select {
+		case <-ctx.Done():
+			close(jobs)
+			wg.Wait()
+			return hits
+		case jobs <- i:
+		}
+	}
+	close(jobs)
+	wg.Wait()
+	return hits
+}
+
+func dialPort(ctx context.Context, ip string, port uint16, timeout time.Duration) (model.EndpointState, time.Duration) {
 	start := time.Now()
-	conn, err := net.DialTimeout("tcp", addr, timeout)
+	conn, err := transport.DialTCP(ctx, ip, port, timeout)
 	latency := time.Since(start)
 	if err == nil {
 		_ = conn.Close()
 		// Connect is not service identity — only "something accepted the SYN".
 		return model.EndpointResponsive, latency
 	}
-	if strings.Contains(err.Error(), "refused") {
+	if errors.Is(err, context.Canceled) || errors.Is(err, context.DeadlineExceeded) || errors.Is(err, transport.ErrBudgetExceeded) {
+		return model.EndpointUnknown, latency
+	}
+	if strings.Contains(strings.ToLower(err.Error()), "refused") {
 		return model.EndpointClosed, latency
 	}
 	return model.EndpointFiltered, latency

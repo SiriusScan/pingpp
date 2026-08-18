@@ -13,6 +13,7 @@ import (
 	"github.com/SiriusScan/ping++/pkg/fingerprint"
 	"github.com/SiriusScan/ping++/pkg/metrics"
 	"github.com/SiriusScan/ping++/pkg/model"
+	"github.com/SiriusScan/ping++/pkg/transport"
 )
 
 // Matcher turns observations into fused claims.
@@ -30,6 +31,7 @@ type Engine struct {
 	fingerprints Matcher
 	artifacts    artifact.Store
 	metrics      *metrics.Counters
+	mu           sync.Mutex
 }
 
 // Options configures an Engine.
@@ -39,6 +41,8 @@ type Options struct {
 	TCPPorts      []uint16
 	RatePerSecond int
 	Registry      *Registry
+	// MaxNetworkOps overrides the profile network-operation budget when > 0.
+	MaxNetworkOps int
 	// Fingerprints overrides the built-in fingerprint engine when set.
 	Fingerprints Matcher
 	// FingerprintDir loads extra YAML packs after built-ins.
@@ -63,6 +67,9 @@ func NewEngine(opts Options) (*Engine, error) {
 	}
 	if opts.RatePerSecond > 0 {
 		profile.Budget.RatePerSecond = opts.RatePerSecond
+	}
+	if opts.MaxNetworkOps > 0 {
+		profile.Budget.MaxNetworkOps = opts.MaxNetworkOps
 	}
 	fp := opts.Fingerprints
 	if fp == nil {
@@ -123,67 +130,94 @@ func (e *Engine) ScanTarget(ctx context.Context, raw string) (*ScanResult, error
 		Reachability: model.Reachability{State: model.ReachabilityUnknown},
 		Budget:       e.profile.Budget,
 		Completed:    make(map[string]bool),
+		Meter: &transport.Meter{
+			MaxNetworkOps: e.profile.Budget.MaxNetworkOps,
+		},
 	}
 
-	// Stage 2: discovery
-	for _, task := range e.planner.PlanDiscovery(asset, &target, state) {
-		if !state.Budget.RemainingProbes() {
-			break
-		}
-		if err := e.runTask(ctx, task, asset, state); err != nil && ctx.Err() != nil {
-			return nil, err
-		}
+	if err := e.runTasks(ctx, e.planner.PlanDiscovery(asset, &target, state), asset, &target, state); err != nil {
+		return nil, err
+	}
+	if err := e.runTasks(ctx, e.planner.PlanEnumeration(asset, &target, state), asset, &target, state); err != nil {
+		return nil, err
 	}
 
-	// Stage 3: enumeration
-	for _, task := range e.planner.PlanEnumeration(asset, &target, state) {
-		if !state.Budget.RemainingProbes() {
-			break
-		}
-		if err := e.runTask(ctx, task, asset, state); err != nil && ctx.Err() != nil {
-			return nil, err
-		}
-	}
-
-	// Stage 4+: adaptive classify → fingerprint → replan.
 	const maxPasses = 8
 	for pass := 0; pass < maxPasses; pass++ {
-		if !state.Budget.RemainingProbes() {
+		if !e.budgetRemaining(state) {
 			break
 		}
 		tasks := e.planner.Next(asset, state)
 		if len(tasks) == 0 {
 			break
 		}
-		for i := range tasks {
-			tasks[i].Target = &target
-		}
-		sort.Slice(tasks, func(i, j int) bool {
-			return tasks[i].Priority > tasks[j].Priority
-		})
-		for _, task := range tasks {
-			if !state.Budget.RemainingProbes() {
-				break
-			}
-			if err := e.runTask(ctx, task, asset, state); err != nil && ctx.Err() != nil {
-				return nil, err
-			}
+		if err := e.runTasks(ctx, tasks, asset, &target, state); err != nil {
+			return nil, err
 		}
 		e.applyFingerprints(asset)
 	}
 
 	e.applyFingerprints(asset)
+	e.mu.Lock()
+	e.syncMeterLocked(state)
+	e.mu.Unlock()
 	return &ScanResult{Asset: asset, State: state}, nil
 }
 
-func (e *Engine) runTask(ctx context.Context, task Task, asset *model.Asset, state *ScanState) error {
-	if !e.limiter.Wait(ctx.Done()) {
-		return ctx.Err()
+func (e *Engine) runTasks(ctx context.Context, tasks []Task, asset *model.Asset, target *model.Target, state *ScanState) error {
+	if len(tasks) == 0 {
+		return nil
 	}
+	for i := range tasks {
+		if tasks[i].Target == nil {
+			tasks[i].Target = target
+		}
+	}
+	sort.Slice(tasks, func(i, j int) bool {
+		return tasks[i].Priority > tasks[j].Priority
+	})
+	return e.scheduler.RunAll(ctx, tasks, func(ctx context.Context, task Task) error {
+		if !e.budgetRemaining(state) {
+			return nil
+		}
+		err := e.runTask(ctx, task, asset, state)
+		if err != nil && ctx.Err() != nil {
+			return err
+		}
+		return nil
+	})
+}
+
+func (e *Engine) budgetRemaining(state *ScanState) bool {
+	if state == nil {
+		return true
+	}
+	e.mu.Lock()
+	defer e.mu.Unlock()
+	e.syncMeterLocked(state)
+	return state.Budget.Remaining()
+}
+
+func (e *Engine) syncMeterLocked(state *ScanState) {
+	if state == nil || state.Meter == nil {
+		return
+	}
+	ops, conns, read, _ := state.Meter.Snapshot()
+	state.Budget.NetworkOps = ops
+	state.Budget.Connections = conns
+	state.Budget.BytesUsed = read
+}
+
+func (e *Engine) runTask(ctx context.Context, task Task, asset *model.Asset, state *ScanState) error {
 	cfg := Config{
-		Timeout: e.profile.Budget.ProbeTimeout,
-		Ports:   e.profile.TCPPorts,
-		Extra:   task.Extra,
+		Timeout:     e.profile.Budget.ProbeTimeout,
+		Ports:       e.profile.TCPPorts,
+		UDPPorts:    e.profile.UDPPorts,
+		Concurrency: e.profile.Budget.MaxConcurrentPerHost,
+		Extra:       task.Extra,
+	}
+	if task.Stage == StageDiscovery {
+		cfg.Ports = append([]uint16(nil), QuickPorts...)
 	}
 	c, err := e.registry.Create(task.CollectorID, cfg)
 	if err != nil {
@@ -198,8 +232,19 @@ func (e *Engine) runTask(ctx context.Context, task Task, asset *model.Asset, sta
 		Extra:     task.Extra,
 		Artifacts: e.artifacts,
 	}
+	if state != nil && state.Meter != nil {
+		ctx = transport.WithMeter(ctx, state.Meter)
+	}
 	result, err := executeCollector(ctx, c, in)
+
+	e.mu.Lock()
+	defer e.mu.Unlock()
 	state.Budget.ConsumeProbe()
+	if state.Meter != nil {
+		e.syncMeterLocked(state)
+	} else if result.NetworkOps > 0 || result.BytesRead > 0 {
+		state.Budget.ConsumeNetwork(result.NetworkOps, result.BytesRead)
+	}
 	key := task.CollectorID
 	if task.Endpoint != nil {
 		key = task.CollectorID + ":" + task.Endpoint.Key()

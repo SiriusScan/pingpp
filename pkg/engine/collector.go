@@ -14,6 +14,7 @@ import (
 
 	"github.com/SiriusScan/ping++/pkg/artifact"
 	"github.com/SiriusScan/ping++/pkg/model"
+	"github.com/SiriusScan/ping++/pkg/transport"
 )
 
 // Stage identifies which pipeline stage a collector belongs to.
@@ -102,6 +103,7 @@ type ScanState struct {
 	Completed    map[string]bool            // collector IDs already run for current subject
 	Matched      map[string]map[string]bool // endpoint key -> protocol -> matched
 	RuledOut     map[string]map[string]bool
+	Meter        *transport.Meter
 	mu           sync.Mutex
 }
 
@@ -202,8 +204,10 @@ func exclusiveProtocol(protocol string) bool {
 
 // Config is collector construction configuration.
 type Config struct {
-	Timeout time.Duration
-	Ports   []uint16
+	Timeout     time.Duration
+	Ports       []uint16
+	UDPPorts    []uint16
+	Concurrency int
 	// Extra holds collector-specific options (e.g. SNMP community).
 	Extra map[string]string
 }

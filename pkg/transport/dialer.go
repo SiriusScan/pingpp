@@ -4,14 +4,34 @@ package transport
 import (
 	"context"
 	"crypto/tls"
+	"fmt"
 	"net"
 	"time"
 )
 
-// DialTCP dials a TCP endpoint with timeout.
+// DialTCP dials a TCP endpoint with timeout and records a network operation.
 func DialTCP(ctx context.Context, address string, port uint16, timeout time.Duration) (net.Conn, error) {
+	if err := recordDial(ctx); err != nil {
+		return nil, err
+	}
 	d := net.Dialer{Timeout: timeout}
 	return d.DialContext(ctx, "tcp", net.JoinHostPort(address, itoa(port)))
+}
+
+// DialUDP dials a UDP endpoint and records a network operation.
+func DialUDP(ctx context.Context, address string, port uint16, timeout time.Duration) (net.Conn, error) {
+	if err := recordDial(ctx); err != nil {
+		return nil, err
+	}
+	d := net.Dialer{Timeout: timeout}
+	return d.DialContext(ctx, "udp", net.JoinHostPort(address, itoa(port)))
+}
+
+func recordDial(ctx context.Context) error {
+	if m := ContextMeter(ctx); m != nil {
+		return m.AddDial()
+	}
+	return nil
 }
 
 // DialTLS performs a TLS handshake over TCP.
@@ -37,17 +57,5 @@ func DialTLS(ctx context.Context, address string, port uint16, serverName string
 }
 
 func itoa(u uint16) string {
-	// small local helper to avoid strconv import churn in hot paths of tests
-	var b [6]byte
-	i := len(b)
-	if u == 0 {
-		return "0"
-	}
-	n := int(u)
-	for n > 0 {
-		i--
-		b[i] = byte('0' + n%10)
-		n /= 10
-	}
-	return string(b[i:])
+	return fmt.Sprintf("%d", u)
 }
