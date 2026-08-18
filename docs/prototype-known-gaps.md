@@ -37,9 +37,9 @@ Reviewed prototype commit: `bfef5cb`.
 
 ## Current head
 
-This commit — deterministic A/AAAA order and de-duplication, dead-address
-fairness, and HTTP/TLS evidence that distinguishes logical host from the
-pinned transport IP (Host + SNI stay on the hostname).
+This commit (`ccab9cb`) — deterministic A/AAAA order and de-duplication,
+dead-address fairness, and HTTP/TLS evidence that distinguishes logical
+host from the pinned transport IP (Host + SNI stay on the hostname).
 
 Canonical path:
 
@@ -366,7 +366,7 @@ Status: COMPLETE for shared logical-scan budget, merged protocol state,
 stage-fair multi-address execution, deterministic address order, and HTTP
 pinned-IP vs Host/SNI
 
-Commit: this commit — ResolveTarget/ScanResolved de-duplicate and order
+Commit: `ccab9cb` — ResolveTarget/ScanResolved de-duplicate and order
 IPv4 then IPv6; HTTP DialContext is pinned to `Endpoint.Address` while the
 request URL/Host and TLS SNI use the logical hostname; observation payloads
 record `logical_host` / `transport_ip`
