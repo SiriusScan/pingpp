@@ -144,8 +144,7 @@ func (n *NativeRecog) Match(observations []model.ObservationRecord) ([]model.Cla
 					return nil, err
 				}
 				for i := range claims {
-					claims[i].EvidenceIDs = []string{obs.ID}
-					claims[i].CorrelationGroup = "recog:" + obs.ObservationType
+					annotateRecogClaim(&claims[i], obs)
 				}
 				out = append(out, claims...)
 			}
@@ -171,13 +170,21 @@ func (n *NativeRecog) Match(observations []model.ObservationRecord) ([]model.Cla
 				return nil, err
 			}
 			for i := range claims {
-				claims[i].EvidenceIDs = []string{obs.ID}
-				claims[i].CorrelationGroup = "recog:" + obs.ObservationType
+				annotateRecogClaim(&claims[i], obs)
 			}
 			out = append(out, claims...)
 		}
 	}
 	return out, nil
+}
+
+func annotateRecogClaim(c *model.Claim, obs model.ObservationRecord) {
+	c.EvidenceIDs = []string{obs.ID}
+	c.CorrelationGroup = "recog:" + obs.ObservationType
+	c.Subject = obs.AssetID
+	if obs.Endpoint != nil {
+		c.Subject = model.EndpointKey(obs.Endpoint.Address, obs.Endpoint.Port, obs.Endpoint.Transport)
+	}
 }
 
 // RuleCount returns the number of compiled Recog rules.

@@ -118,7 +118,7 @@ func TestRecogHTTPHeaderServerMapping(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	obs := model.ObservationRecord{ID: "h1", ObservationType: model.ObservationHTTP}
+	obs := model.ObservationRecord{ID: "h1", ObservationType: model.ObservationHTTP, Endpoint: &model.EndpointRef{Address: "10.0.0.1", Port: 80, Transport: model.TransportTCP}}
 	_ = obs.SetPayload(model.HTTPObservation{Server: "nginx/1.24"})
 	claims, err := r.Match([]model.ObservationRecord{obs})
 	if err != nil {
@@ -126,6 +126,12 @@ func TestRecogHTTPHeaderServerMapping(t *testing.T) {
 	}
 	if len(claims) != 1 || claims[0].Product != "nginx" {
 		t.Fatalf("%+v", claims)
+	}
+	if claims[0].Subject != "10.0.0.1/tcp/80" {
+		t.Fatalf("subject=%q", claims[0].Subject)
+	}
+	if claims[0].Subject != "10.0.0.1/tcp/80" {
+		t.Fatalf("subject=%q", claims[0].Subject)
 	}
 }
 

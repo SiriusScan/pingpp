@@ -1,10 +1,12 @@
 // Enumeration scan example: resolve → discover → enumerate → classify → fingerprint.
 //
-// Default stdout is a complete diagnostic dump (every endpoint, observation
-// payload, and claim — nothing truncated). Use -json when another tool
-// should consume the same document.
+// Default stdout is a simplified findings report (every positive match:
+// open/responsive endpoints, protocol claims, fingerprint claims, and
+// successful observation fields). Use -verbose for the complete diagnostic
+// dump, or -json for the same document as JSON.
 //
 //	go run ./examples/scan n8n.example.com
+//	go run ./examples/scan -verbose n8n.example.com
 //	go run ./examples/scan -json -o scan.json n8n.example.com
 //	go run ./examples/scan -seed example.com
 package main
@@ -27,6 +29,7 @@ func main() {
 	profileName := flag.String("profile", "default", "scan profile: quick, default, or deep")
 	seed := flag.Bool("seed", false, "also try apex and www for a registrable domain")
 	asJSON := flag.Bool("json", false, "print the full scan document as JSON")
+	verbose := flag.Bool("verbose", false, "print the complete diagnostic dump instead of findings")
 	outPath := flag.String("o", "", "write output to a file (default stdout)")
 	timeout := flag.Duration("timeout", 4*time.Minute, "overall scan deadline")
 	rate := flag.Int("rate", 200, "max collector tasks per second")
@@ -105,7 +108,7 @@ func main() {
 		}
 		return
 	}
-	if err := writeText(out, docs); err != nil {
+	if err := writeText(out, docs, *verbose); err != nil {
 		fmt.Fprintf(os.Stderr, "write: %v\n", err)
 		os.Exit(1)
 	}
