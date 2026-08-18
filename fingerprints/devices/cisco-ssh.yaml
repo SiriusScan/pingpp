@@ -1,0 +1,20 @@
+id: ssh-cisco-banner
+scope: device
+correlation_group: ssh_banner
+inputs:
+  observation_type: ssh
+matches:
+  - field: banner
+    regex: "(?i)Cisco"
+claims:
+  - kind: device
+    vendor: Cisco
+    product: Cisco IOS
+    certainty: strong
+    score: 90
+  - kind: os
+    vendor: Cisco
+    product: Cisco IOS
+    family: cisco
+    certainty: strong
+    score: 88

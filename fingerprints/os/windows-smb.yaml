@@ -1,0 +1,15 @@
+id: smb-ntlm-windows
+scope: os
+correlation_group: smb_ntlm
+inputs:
+  observation_type: smb
+matches:
+  - field: os_build
+    regex: "^10\\."
+claims:
+  - kind: os
+    vendor: Microsoft
+    family: windows
+    product: Windows
+    certainty: strong
+    score: 92

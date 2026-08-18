@@ -94,7 +94,7 @@ func ProfileFor(name ProfileName) Profile {
 			Name:                ProfileQuick,
 			TCPPorts:            append([]uint16(nil), QuickPorts...),
 			DiscoveryCollectors: []string{"discovery.icmp", "discovery.tcp"},
-			CollectCollectors:   []string{"enumerate.tcp"},
+			CollectCollectors:   []string{"enumerate.tcp", "collect.tls", "collect.http", "collect.ssh", "collect.smb"},
 			Budget:              b,
 		}
 	case ProfileDeep:
@@ -105,7 +105,7 @@ func ProfileFor(name ProfileName) Profile {
 			TCPPorts:            append([]uint16(nil), DefaultPorts...),
 			UDPPorts:            append([]uint16(nil), DefaultUDPPorts...),
 			DiscoveryCollectors: []string{"discovery.icmp", "discovery.tcp"},
-			CollectCollectors:   []string{"enumerate.tcp"},
+			CollectCollectors:   []string{"enumerate.tcp", "collect.tls", "collect.http", "collect.ssh", "collect.smb"},
 			Budget:              b,
 		}
 	default:
@@ -114,7 +114,7 @@ func ProfileFor(name ProfileName) Profile {
 			TCPPorts:            append([]uint16(nil), DefaultPorts...),
 			UDPPorts:            append([]uint16(nil), DefaultUDPPorts...),
 			DiscoveryCollectors: []string{"discovery.icmp", "discovery.tcp"},
-			CollectCollectors:   []string{"enumerate.tcp"},
+			CollectCollectors:   []string{"enumerate.tcp", "collect.tls", "collect.http", "collect.ssh", "collect.smb"},
 			Budget:              b,
 		}
 	}
