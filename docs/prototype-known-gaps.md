@@ -37,7 +37,7 @@ Reviewed prototype commit: `bfef5cb`.
 
 ## Current head
 
-This commit — ProbeTypes compatibility, stage-fair multi-address scans,
+This commit (`12526b0`) — ProbeTypes compatibility, stage-fair multi-address scans,
 endpoint execution completeness, C13 typed exit codes, and responsive
 unclassified findings in default text.
 
@@ -365,7 +365,7 @@ Known debt:
 Status: COMPLETE for shared logical-scan budget, merged protocol state, and
 stage-fair multi-address execution
 
-Commit: this commit — D0/D1 across all addresses, then round-robin classify/enrich;
+Commit: `12526b0` D0/D1 across all addresses, then round-robin classify/enrich;
 logical `State.AssetID` is no longer overwritten by per-IP IDs
 
 Acceptance tests:
