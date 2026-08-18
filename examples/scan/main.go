@@ -1,17 +1,16 @@
 // Enumeration scan example: resolve → discover → enumerate → classify → fingerprint.
 //
-// This is the real-world library entry point while cmd/pingpp is still unbuilt.
-// It scans one or more hostnames, IPs, or URLs and prints protocol-confirmed
-// services separately from TCP-connect-only ports (common on NLBs / firewalls).
+// Default stdout is the full library document (asset + observations + claims)
+// so another tool can ingest it. Nothing is summarized or truncated.
 //
-//	go run ./examples/scan -t https://n8n.example.com/
+//	go run ./examples/scan n8n.example.com
+//	go run ./examples/scan -t https://n8n.example.com/ -o scan.json
+//	go run ./examples/scan -text n8n.example.com
 //	go run ./examples/scan -seed example.com
-//	go run ./examples/scan -profile quick -json -o report.json 10.0.0.5
 package main
 
 import (
 	"context"
-	"encoding/json"
 	"flag"
 	"fmt"
 	"io"
@@ -28,8 +27,8 @@ func main() {
 	var targets multiFlag
 	profileName := flag.String("profile", "default", "scan profile: quick, default, or deep")
 	seed := flag.Bool("seed", false, "also try apex and www for a registrable domain")
-	asJSON := flag.Bool("json", false, "print a machine-readable enumeration report")
-	outPath := flag.String("o", "", "write the report to a file")
+	text := flag.Bool("text", false, "print a complete line-oriented dump instead of JSON")
+	outPath := flag.String("o", "", "write the document to a file (default stdout)")
 	timeout := flag.Duration("timeout", 4*time.Minute, "overall scan deadline")
 	rate := flag.Int("rate", 200, "max collector tasks per second")
 	flag.Var(&targets, "t", "target hostname, IP, or URL (repeatable)")
@@ -76,7 +75,7 @@ func main() {
 
 	fmt.Fprintf(os.Stderr, "enumerating %s (profile=%s)\n", strings.Join(hosts, ", "), profile)
 
-	var reports []EnumReport
+	var docs []ScanDocument
 	for _, host := range hosts {
 		started := time.Now()
 		fmt.Fprintf(os.Stderr, "  %s\n", host)
@@ -90,9 +89,9 @@ func main() {
 		for _, c := range claims {
 			res.Asset.AddClaim(c)
 		}
-		reports = append(reports, buildReport(host, profile, res, time.Since(started)))
+		docs = append(docs, buildDocument(host, profile, res, time.Since(started)))
 	}
-	if len(reports) == 0 {
+	if len(docs) == 0 {
 		fmt.Fprintf(os.Stderr, "no resolvable targets\n")
 		os.Exit(1)
 	}
@@ -108,24 +107,16 @@ func main() {
 		out = f
 	}
 
-	if *asJSON {
-		enc := json.NewEncoder(out)
-		enc.SetIndent("", "  ")
-		payload := any(reports[0])
-		if len(reports) > 1 {
-			payload = reports
-		}
-		if err := enc.Encode(payload); err != nil {
-			fmt.Fprintf(os.Stderr, "json: %v\n", err)
+	if *text {
+		if err := writeText(out, docs); err != nil {
+			fmt.Fprintf(os.Stderr, "write: %v\n", err)
 			os.Exit(1)
 		}
 		return
 	}
-	for i, r := range reports {
-		if i > 0 {
-			fmt.Fprintln(out)
-		}
-		fmt.Fprint(out, r.String())
+	if err := writeJSON(out, docs); err != nil {
+		fmt.Fprintf(os.Stderr, "json: %v\n", err)
+		os.Exit(1)
 	}
 }
 

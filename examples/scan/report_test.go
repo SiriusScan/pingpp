@@ -1,40 +1,62 @@
 package main
 
 import (
+	"encoding/json"
+	"strings"
 	"testing"
+	"time"
 
+	"github.com/SiriusScan/ping++/pkg/engine"
 	"github.com/SiriusScan/ping++/pkg/model"
-	"github.com/SiriusScan/ping++/pkg/protocol/textproto"
 )
 
-func TestConfirmedServiceRequiresProtocol(t *testing.T) {
-	ep := model.EndpointRef{Address: "1.2.3.4", Port: 22, Transport: model.TransportTCP}
+func TestDocumentKeepsFullObservationPayloads(t *testing.T) {
+	asset := model.NewAssetFromIP("54.84.197.231")
+	asset.Hostnames = []string{"n8n.shimcounty.com"}
+	asset.AddEndpoint(model.NewEndpoint("54.84.197.231", 21, model.TransportTCP, model.EndpointResponsive))
+	asset.AddEndpoint(model.NewEndpoint("54.84.197.231", 53, model.TransportTCP, model.EndpointOpen))
+	obs := model.ObservationRecord{
+		ID:              "obs:dns:1",
+		ProbeID:         "collect.dns",
+		ObservationType: "dns",
+		Endpoint:        &model.EndpointRef{Address: "54.84.197.231", Port: 53, Transport: model.TransportTCP},
+	}
+	answers := []string{"93.184.216.34", "2606:2800:220:1:248:1893:25c8:1946"}
+	if err := obs.SetPayload(map[string]any{
+		"responded": true,
+		"answers":   answers,
+		"server":    "54.84.197.231",
+	}); err != nil {
+		t.Fatal(err)
+	}
+	asset.AddObservation(obs)
 
-	tcp := model.ObservationRecord{ObservationType: model.ObservationTCPEndpoint, Endpoint: &ep}
-	_ = tcp.SetPayload(model.TCPEndpointObservation{State: model.EndpointOpen})
-	if _, ok := confirmedService(tcp); ok {
-		t.Fatal("tcp.endpoint must not count as a confirmed service")
+	doc := buildDocument("n8n.shimcounty.com", engine.ProfileDefault, &engine.ScanResult{
+		Asset: asset,
+		State: &engine.ScanState{
+			AssetID:   asset.ID,
+			Completed: map[string]bool{"collect.dns:54.84.197.231/tcp/53": true},
+		},
+	}, time.Second)
+
+	raw, err := json.Marshal(doc)
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, want := range answers {
+		if !strings.Contains(string(raw), want) {
+			t.Fatalf("JSON dropped DNS answer %q:\n%s", want, raw)
+		}
 	}
 
-	emptyFTP := model.ObservationRecord{ObservationType: textproto.ObsFTP, Endpoint: &ep}
-	_ = emptyFTP.SetPayload(textproto.BannerObservation{})
-	if _, ok := confirmedService(emptyFTP); ok {
-		t.Fatal("empty banner is not confirmation")
+	text := doc.Text()
+	if strings.Contains(text, "…") || strings.Contains(text, "...") {
+		t.Fatalf("text dump truncated:\n%s", text)
 	}
-
-	ssh := model.ObservationRecord{ObservationType: model.ObservationSSH, Endpoint: &ep}
-	_ = ssh.SetPayload(model.SSHObservation{Banner: "SSH-2.0-OpenSSH_9.6"})
-	hit, ok := confirmedService(ssh)
-	if !ok || hit.Port != 22 || hit.Summary == "" {
-		t.Fatalf("ssh hit=%+v ok=%v", hit, ok)
+	if !strings.Contains(text, "endpoint\ttcp\t21\tresponsive") {
+		t.Fatalf("missing connect-only endpoint:\n%s", text)
 	}
-
-	timedOut := model.ObservationRecord{
-		ObservationType: model.ObservationHTTP,
-		Endpoint:        &ep,
-		Error:           "timeout",
-	}
-	if _, ok := confirmedService(timedOut); ok {
-		t.Fatal("errored observation is not confirmation")
+	if !strings.Contains(text, answers[0]) {
+		t.Fatalf("text dump dropped DNS answer:\n%s", text)
 	}
 }

@@ -270,20 +270,16 @@ go test ./...
 
 ### Running locally
 
-There is no `cmd/pingpp` binary yet. Use the enumeration example:
+There is no `cmd/pingpp` binary yet. Use the enumeration example. It prints the full scan document (every endpoint, observation payload, and claim) as JSON:
 
 ```bash
-# Hostname or URL — protocol-confirmed services only
 go run ./examples/scan -t https://n8n.example.com/
-
-# Registrable domain seed (apex + www)
 go run ./examples/scan -seed example.com
-
-# Faster 5-port profile, machine-readable report
-go run ./examples/scan -profile quick -json -o report.json 10.0.0.5
+go run ./examples/scan -profile quick -o scan.json 10.0.0.5
+go run ./examples/scan -text n8n.example.com   # complete line dump, still untruncated
 ```
 
-ICMP discovery needs root and is skipped automatically when unprivileged. TCP connect-open is not treated as a service: the example reports protocol-confirmed endpoints separately from accept-all middleboxes.
+ICMP discovery needs root and is skipped automatically when unprivileged. TCP connect success is `responsive`, not `open`; `open` requires a protocol handshake. The example does not summarize or omit records.
 
 ## Dependencies
 
