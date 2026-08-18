@@ -289,7 +289,7 @@ func (r EnumReport) String() string {
 		fmt.Fprintf(&b, "  %5d/tcp  %-10s  %s\n", s.Port, s.Protocol, s.Summary)
 	}
 
-	fmt.Fprintf(&b, "\nconnect-only ports  %d of %d TCP-open\n", len(r.ConnectOnly), r.ConnectOpen)
+	fmt.Fprintf(&b, "\nconnect-only ports  %d of %d TCP connects\n", len(r.ConnectOnly), r.ConnectOpen)
 	if r.LikelyConnectAcceptor {
 		b.WriteString("  note: most connects succeeded without a protocol — likely NLB/firewall accept-all\n")
 	}
