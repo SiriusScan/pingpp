@@ -26,6 +26,7 @@ import (
 	"github.com/SiriusScan/ping++/pkg/protocol/snmp"
 	"github.com/SiriusScan/ping++/pkg/protocol/socks"
 	sshcol "github.com/SiriusScan/ping++/pkg/protocol/ssh"
+	"github.com/SiriusScan/ping++/pkg/protocol/tcpstack"
 	"github.com/SiriusScan/ping++/pkg/protocol/telnet"
 	tlscol "github.com/SiriusScan/ping++/pkg/protocol/tls"
 	"github.com/SiriusScan/ping++/pkg/protocol/vnc"
@@ -59,5 +60,6 @@ func NewRegistry() *engine.Registry {
 		vnc.Register,
 		socks.Register,
 		amqp.Register,
+		tcpstack.Register,
 	)
 }
