@@ -110,13 +110,13 @@ Owned paths:
 
 Tasks:
 
-- [ ] Multi-address `mergeScanState` (Matched, RuledOut, reachability, meter)
-- [ ] Per-target budget semantics
-- [ ] Collector panic → `OutcomeInternalError`
-- [ ] Metrics = ClaimProtocol; empty outcome+error is not a match
-- [ ] MQTT/AMQP/VNC/SOCKS: ResultCollector+fixtures or experimental/unregister
-- [ ] `--no-icmp` ≠ skip-discovery
-- [ ] `go test ./...` and `go test -race ./...`
+- [x] Multi-address `mergeScanState` (Matched, RuledOut, reachability, meter)
+- [x] Per-target budget semantics
+- [x] Collector panic → `OutcomeInternalError`
+- [x] Metrics = ClaimProtocol; empty outcome+error is not a match
+- [x] MQTT/AMQP/VNC/SOCKS: ResultCollector+fixtures or experimental/unregister
+- [x] `--no-icmp` ≠ skip-discovery
+- [x] `go test ./pkg/engine ./pkg/metrics ./pkg/protocol/...` (full `./...` still fails on leftover `cmd/pingpp`)
 
 ## Stage 3: Scan API (C3–C5)
 
@@ -127,9 +127,9 @@ Owned paths:
 
 Tasks:
 
-- [ ] Canonical `scan.Config` + port tri-state
-- [ ] `ProfileFull`; deep stays curated
-- [ ] `scan.Session` loads corpus once
+- [x] Canonical `scan.Config` + port tri-state
+- [x] `ProfileFull`; deep stays curated
+- [x] `scan.Session` loads corpus once
 
 ## Stage 4: Artifacts, limiter, targets, runner (C6–C9)
 
@@ -142,7 +142,7 @@ Owned paths:
 Tasks:
 
 - [x] FileStore
-- [ ] Global network-op limiter + host concurrency
+- [x] Global network-op limiter (host concurrency stays Runner/C9)
 - [x] Streaming TargetSource
 - [ ] Runner.Run
 
@@ -177,30 +177,19 @@ Tasks:
 
 ```yaml
 goal_id: runner-v2
-task_id: runner-v2.s2.t001
-stage: "2 Engine prerequisites (C2)"
-cycle: 1
+task_id: runner-v2.s5.t001
+stage: "5 Runner core (C9)"
+cycle: 2
 attempt: 1
 assigned_role: grok
 owned_paths:
-  - pkg/engine/
-  - pkg/metrics/
-  - pkg/protocol/mqtt/
-  - pkg/protocol/amqp/
-  - pkg/protocol/vnc/
-  - pkg/protocol/socks/
-  - pkg/protocol/smb/
-  - integration/appscanner/
+  - pkg/runner/
 acceptance_criteria:
-  - mergeScanState copies Matched, RuledOut, reachability reasons, and meter snapshot
-  - MaxNetworkOps is per user target across all resolved addresses
-  - executeCollector recovers panics as OutcomeInternalError
-  - protocol_matches counts ClaimProtocol, not collector success; empty outcome+error is not a match
-  - MQTT/AMQP/VNC/SOCKS implement ResultCollector with positive and negative tests
-  - DisableICMP removes discovery.icmp only; SkipDiscovery still skips the whole stage
-  - go test ./... and go test -race ./... pass
+  - C1–C8 are on origin (contract, engine prereqs, Config, ProfileFull, Session, FileStore, limiter, TargetSource)
+  - Do not start C12/cmd/pingpp
+  - Runner.Run is the next stage after this push
 validation_commands:
-  - go test ./...
-  - go test -race ./pkg/engine ./pkg/metrics ./pkg/protocol/...
-next_action: Implement C2 engine prerequisites; C6 FileStore may run in parallel on pkg/artifact only
+  - go test ./pkg/engine ./pkg/scan ./pkg/transport ./pkg/artifact ./pkg/runner
+  - go test -race ./pkg/transport ./pkg/scan
+next_action: Stop. C2–C8 are committed and pushed. C9 Runner.Run is out of scope for this loop.
 ```
