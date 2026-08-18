@@ -79,7 +79,9 @@ type ScanState struct {
 	AssetID      string
 	Reachability model.Reachability
 	Budget       Budget
-	Completed    map[string]bool // collector IDs already run for current subject
+	Completed    map[string]bool            // collector IDs already run for current subject
+	Matched      map[string]map[string]bool // endpoint key -> protocol -> matched
+	RuledOut     map[string]map[string]bool
 	mu           sync.Mutex
 }
 
@@ -104,6 +106,68 @@ func (s *ScanState) IsComplete(collectorID string) bool {
 	s.mu.Lock()
 	defer s.mu.Unlock()
 	return s.Completed[collectorID]
+}
+
+// NoteProtocol records a positive or negative protocol classification.
+func (s *ScanState) NoteProtocol(endpointKey, protocol string, match bool) {
+	if s == nil || endpointKey == "" || protocol == "" {
+		return
+	}
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	if match {
+		if s.Matched == nil {
+			s.Matched = make(map[string]map[string]bool)
+		}
+		if s.Matched[endpointKey] == nil {
+			s.Matched[endpointKey] = make(map[string]bool)
+		}
+		s.Matched[endpointKey][protocol] = true
+		return
+	}
+	if s.RuledOut == nil {
+		s.RuledOut = make(map[string]map[string]bool)
+	}
+	if s.RuledOut[endpointKey] == nil {
+		s.RuledOut[endpointKey] = make(map[string]bool)
+	}
+	s.RuledOut[endpointKey][protocol] = true
+}
+
+// HasProtocol reports a positive protocol match for an endpoint.
+func (s *ScanState) HasProtocol(endpointKey, protocol string) bool {
+	if s == nil {
+		return false
+	}
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	return s.Matched[endpointKey][protocol]
+}
+
+// HasExclusiveProtocol reports whether an exclusive protocol was identified.
+func (s *ScanState) HasExclusiveProtocol(endpointKey string) bool {
+	if s == nil {
+		return false
+	}
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	for proto := range s.Matched[endpointKey] {
+		if exclusiveProtocol(proto) {
+			return true
+		}
+	}
+	return false
+}
+
+func exclusiveProtocol(protocol string) bool {
+	switch protocol {
+	case "tls", "http", "banner", "tcp.stack", "tcp.endpoint", "icmp.echo":
+		return false
+	case "":
+		return false
+	default:
+		return true
+	}
 }
 
 // Config is collector construction configuration.

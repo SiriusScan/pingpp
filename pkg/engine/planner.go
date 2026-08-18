@@ -1,6 +1,7 @@
 package engine
 
 import (
+	"strings"
 	"sync"
 	"time"
 
@@ -15,6 +16,7 @@ type Task struct {
 	Target      *model.Target
 	Stage       Stage
 	Priority    int
+	Extra       map[string]string
 }
 
 // Planner inspects scan state and creates collector tasks.
@@ -111,6 +113,94 @@ func (p *Planner) PlanClassification(asset *model.Asset, state *ScanState) []Tas
 		}
 	}
 	return tasks
+}
+
+// Next returns the next adaptive classification/enrichment tasks.
+// One collector is scheduled per endpoint per call so the engine can
+// fingerprint and re-plan instead of probing every prior up front.
+func (p *Planner) Next(asset *model.Asset, state *ScanState) []Task {
+	if asset == nil {
+		return nil
+	}
+	var tasks []Task
+	for i := range asset.Endpoints {
+		ep := &asset.Endpoints[i]
+		if ep.State != model.EndpointOpen && ep.State != model.EndpointResponsive {
+			continue
+		}
+		if task, ok := p.nextForEndpoint(asset, ep, state); ok {
+			tasks = append(tasks, task)
+		}
+	}
+	return tasks
+}
+
+func (p *Planner) nextForEndpoint(asset *model.Asset, ep *model.Endpoint, state *ScanState) (Task, bool) {
+	key := ep.Key()
+	if state != nil && state.HasExclusiveProtocol(key) {
+		return p.maybeEnrich(asset, ep, state)
+	}
+	if state != nil && state.HasProtocol(key, "tls") {
+		if task, ok := p.taskIfAvailable(asset, ep, state, "collect.http", StageCollect); ok {
+			task.Extra = map[string]string{"tls": "1"}
+			return task, true
+		}
+	}
+	for _, id := range likelyCollectorsForPort(ep.Port, ep.Transport) {
+		if state != nil && exclusiveProtocol(strings.TrimPrefix(id, "collect.")) && state.HasProtocol(key, "http") && id != "collect.http" && id != "collect.tls" && id != "collect.banner" {
+			continue
+		}
+		if task, ok := p.taskIfAvailable(asset, ep, state, id, StageClassify); ok {
+			return task, true
+		}
+	}
+	return p.maybeEnrich(asset, ep, state)
+}
+
+func (p *Planner) maybeEnrich(asset *model.Asset, ep *model.Endpoint, state *ScanState) (Task, bool) {
+	if state == nil || !state.HasProtocol(ep.Key(), "http") {
+		return Task{}, false
+	}
+	if strongProductClaim(asset, ep.Key()) {
+		return Task{}, false
+	}
+	return p.taskIfAvailable(asset, ep, state, "collect.http.enrich", StageEnrich)
+}
+
+func (p *Planner) taskIfAvailable(asset *model.Asset, ep *model.Endpoint, state *ScanState, id string, stage Stage) (Task, bool) {
+	key := id + ":" + ep.Key()
+	if state != nil && state.IsComplete(key) {
+		return Task{}, false
+	}
+	if !p.registry.Has(id) {
+		return Task{}, false
+	}
+	md, _ := p.meta(id)
+	return Task{
+		CollectorID: id,
+		Asset:       asset,
+		Endpoint:    ep,
+		Stage:       stage,
+		Priority:    md.Priority + portPriorBoost(ep.Port, id),
+	}, true
+}
+
+func strongProductClaim(asset *model.Asset, subject string) bool {
+	if asset == nil {
+		return false
+	}
+	for _, c := range asset.Claims {
+		if c.Subject != subject {
+			continue
+		}
+		if c.Kind != model.ClaimProduct && c.Kind != model.ClaimApplication {
+			continue
+		}
+		if c.Confidence == model.ConfidenceStrong || c.Confidence == model.ConfidenceExact {
+			return true
+		}
+	}
+	return false
 }
 
 func (p *Planner) meta(id string) (CollectorMetadata, bool) {

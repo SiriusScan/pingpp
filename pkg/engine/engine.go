@@ -144,21 +144,38 @@ func (e *Engine) ScanTarget(ctx context.Context, raw string) (*ScanResult, error
 		}
 	}
 
-	// Stage 4+: classification / collect for registered protocol collectors only.
-	// Attach the resolved Target so collectors can use hostname for SNI / Host.
-	classTasks := e.planner.PlanClassification(asset, state)
-	for i := range classTasks {
-		classTasks[i].Target = &target
-	}
-	sort.Slice(classTasks, func(i, j int) bool {
-		return classTasks[i].Priority > classTasks[j].Priority
-	})
-	for _, task := range classTasks {
+	// Stage 4+: adaptive classify → fingerprint → replan.
+	const maxPasses = 8
+	for pass := 0; pass < maxPasses; pass++ {
 		if !state.Budget.RemainingProbes() {
 			break
 		}
-		if err := e.runTask(ctx, task, asset, state); err != nil && ctx.Err() != nil {
-			return nil, err
+		tasks := e.planner.Next(asset, state)
+		if len(tasks) == 0 {
+			break
+		}
+		for i := range tasks {
+			tasks[i].Target = &target
+		}
+		sort.Slice(tasks, func(i, j int) bool {
+			return tasks[i].Priority > tasks[j].Priority
+		})
+		progress := false
+		for _, task := range tasks {
+			if !state.Budget.RemainingProbes() {
+				break
+			}
+			before := len(asset.Observations)
+			if err := e.runTask(ctx, task, asset, state); err != nil && ctx.Err() != nil {
+				return nil, err
+			}
+			if len(asset.Observations) > before {
+				progress = true
+			}
+		}
+		e.applyFingerprints(asset)
+		if !progress {
+			break
 		}
 	}
 
@@ -173,6 +190,7 @@ func (e *Engine) runTask(ctx context.Context, task Task, asset *model.Asset, sta
 	cfg := Config{
 		Timeout: e.profile.Budget.ProbeTimeout,
 		Ports:   e.profile.TCPPorts,
+		Extra:   task.Extra,
 	}
 	c, err := e.registry.Create(task.CollectorID, cfg)
 	if err != nil {
@@ -203,8 +221,31 @@ func (e *Engine) runTask(ctx context.Context, task Task, asset *model.Asset, sta
 		}
 		asset.AddObservation(o)
 		applyObservationToAsset(asset, state, o)
+		noteObservationProtocol(state, o)
 	}
 	return nil
+}
+
+func noteObservationProtocol(state *ScanState, o model.ObservationRecord) {
+	if state == nil || o.Endpoint == nil {
+		return
+	}
+	proto := protocolFromObservation(o)
+	if proto == "" {
+		return
+	}
+	key := model.EndpointKey(o.Endpoint.Address, o.Endpoint.Port, o.Endpoint.Transport)
+	match := protocolObservationConfirmed(o)
+	state.NoteProtocol(key, proto, match)
+}
+
+func protocolFromObservation(o model.ObservationRecord) string {
+	switch o.ObservationType {
+	case model.ObservationTCPEndpoint, model.ObservationICMPEcho, model.ObservationBanner, "tcp.stack":
+		return ""
+	default:
+		return o.ObservationType
+	}
 }
 
 func (e *Engine) applyFingerprints(asset *model.Asset) {
