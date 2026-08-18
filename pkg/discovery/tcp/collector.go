@@ -104,7 +104,7 @@ func runPorts(ctx context.Context, in engine.CollectorInput, ports []uint16, tim
 	}
 
 	var observations []model.ObservationRecord
-	var anyOpen, anyRST bool
+	var anyConnect, anyRST bool
 
 	for _, port := range ports {
 		select {
@@ -114,8 +114,8 @@ func runPorts(ctx context.Context, in engine.CollectorInput, ports []uint16, tim
 		}
 
 		state, latency := dialPort(ip, port, timeout)
-		if state == model.EndpointOpen {
-			anyOpen = true
+		if state == model.EndpointResponsive {
+			anyConnect = true
 		}
 		if state == model.EndpointClosed {
 			anyRST = true
@@ -163,8 +163,8 @@ func runPorts(ctx context.Context, in engine.CollectorInput, ports []uint16, tim
 	}
 	state := model.EndpointFiltered
 	switch {
-	case anyOpen:
-		state = model.EndpointOpen
+	case anyConnect:
+		state = model.EndpointResponsive
 		obs.Completeness = "full"
 	case anyRST:
 		state = model.EndpointClosed
@@ -184,7 +184,8 @@ func dialPort(ip string, port uint16, timeout time.Duration) (model.EndpointStat
 	latency := time.Since(start)
 	if err == nil {
 		_ = conn.Close()
-		return model.EndpointOpen, latency
+		// Connect is not service identity — only "something accepted the SYN".
+		return model.EndpointResponsive, latency
 	}
 	if strings.Contains(err.Error(), "refused") {
 		return model.EndpointClosed, latency

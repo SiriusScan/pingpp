@@ -97,8 +97,8 @@ func TestEnumerateTCPCollectorProducesObservations(t *testing.T) {
 	if err := obs[0].DecodePayload(&payload); err != nil {
 		t.Fatal(err)
 	}
-	if payload.State != model.EndpointOpen {
-		t.Fatalf("state=%q", payload.State)
+	if payload.State != model.EndpointResponsive {
+		t.Fatalf("state=%q want responsive", payload.State)
 	}
 	// Collectors must not emit product claims — observation only.
 	if obs[0].ProbeID == "" {

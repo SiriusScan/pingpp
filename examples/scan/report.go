@@ -88,12 +88,20 @@ func buildReport(input string, profile engine.ProfileName, res *engine.ScanResul
 		confirmedPorts[h.Port] = true
 	}
 	for _, ep := range res.Asset.Endpoints {
-		if ep.State != model.EndpointOpen || ep.Transport != model.TransportTCP {
+		if ep.Transport != model.TransportTCP {
 			continue
 		}
-		r.ConnectOpen++
-		if !confirmedPorts[ep.Port] {
-			r.ConnectOnly = append(r.ConnectOnly, ep.Port)
+		switch ep.State {
+		case model.EndpointOpen:
+			r.ConnectOpen++
+			if !confirmedPorts[ep.Port] {
+				// Protocol upgraded the endpoint; still show it as confirmed-only.
+			}
+		case model.EndpointResponsive:
+			r.ConnectOpen++
+			if !confirmedPorts[ep.Port] {
+				r.ConnectOnly = append(r.ConnectOnly, ep.Port)
+			}
 		}
 	}
 	sort.Slice(r.ConnectOnly, func(i, j int) bool { return r.ConnectOnly[i] < r.ConnectOnly[j] })

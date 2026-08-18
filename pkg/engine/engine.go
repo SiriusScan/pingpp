@@ -174,16 +174,39 @@ func applyObservationToAsset(asset *model.Asset, state *ScanState, o model.Obser
 			asset.AddEndpoint(model.NewEndpoint(o.Endpoint.Address, o.Endpoint.Port, o.Endpoint.Transport, payload.State))
 		}
 		switch payload.State {
-		case model.EndpointOpen:
+		case model.EndpointOpen, model.EndpointResponsive:
 			state.Reachability.State = model.ReachabilityConfirmed
-			state.Reachability.Reasons = appendUniqueReason(state.Reachability.Reasons, "tcp.open")
+			reason := "tcp.connect"
+			if payload.State == model.EndpointOpen {
+				reason = "tcp.open"
+			}
+			state.Reachability.Reasons = appendUniqueReason(state.Reachability.Reasons, reason)
 		case model.EndpointClosed:
 			if state.Reachability.State == model.ReachabilityUnknown {
 				state.Reachability.State = model.ReachabilityProbable
 			}
 			state.Reachability.Reasons = appendUniqueReason(state.Reachability.Reasons, "tcp.rst")
 		}
+	default:
+		if protocolObservationConfirmed(o) {
+			asset.AddEndpoint(model.NewEndpoint(o.Endpoint.Address, o.Endpoint.Port, o.Endpoint.Transport, model.EndpointOpen))
+			state.Reachability.State = model.ReachabilityConfirmed
+			state.Reachability.Reasons = appendUniqueReason(state.Reachability.Reasons, "tcp.service")
+		}
 	}
+}
+
+// protocolObservationConfirmed reports whether a collector proved a service
+// spoke — not merely that TCP connect succeeded.
+func protocolObservationConfirmed(o model.ObservationRecord) bool {
+	if o.Error != "" || o.Endpoint == nil {
+		return false
+	}
+	switch o.ObservationType {
+	case model.ObservationTCPEndpoint, model.ObservationICMPEcho, "tcp.stack":
+		return false
+	}
+	return o.Completeness == "full" || o.Completeness == "partial"
 }
 
 func appendUniqueReason(slice []string, v string) []string {

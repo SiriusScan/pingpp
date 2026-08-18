@@ -88,7 +88,7 @@ func (p *Planner) PlanClassification(asset *model.Asset, state *ScanState) []Tas
 	var tasks []Task
 	for i := range asset.Endpoints {
 		ep := &asset.Endpoints[i]
-		if ep.State != model.EndpointOpen {
+		if ep.State != model.EndpointOpen && ep.State != model.EndpointResponsive {
 			continue
 		}
 		for _, id := range likelyCollectorsForPort(ep.Port, ep.Transport) {

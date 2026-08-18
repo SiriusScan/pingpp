@@ -68,7 +68,12 @@ func CollectBanner(ctx context.Context, in engine.CollectorInput, timeout time.D
 		payload.Reply = strings.Join(lines, "\n")
 		payload.Features = extractFeatures(lines)
 	}
-	obs.Completeness = "full"
+	if payload.Banner == "" && payload.Reply == "" {
+		obs.Completeness = "none"
+		obs.Error = "no banner"
+	} else {
+		obs.Completeness = "full"
+	}
 	_ = obs.SetPayload(payload)
 	return obs, nil
 }

@@ -64,6 +64,9 @@ func NewAssetFromIP(ip string) *Asset {
 func (a *Asset) AddEndpoint(ep Endpoint) {
 	for i := range a.Endpoints {
 		if a.Endpoints[i].Equal(ep) {
+			if a.Endpoints[i].State == EndpointOpen && ep.State == EndpointResponsive {
+				return
+			}
 			a.Endpoints[i].State = ep.State
 			return
 		}

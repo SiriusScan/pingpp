@@ -60,6 +60,10 @@ func TestAssetAddEndpointUpserts(t *testing.T) {
 	if a.Endpoints[0].State != EndpointOpen {
 		t.Fatalf("State=%q", a.Endpoints[0].State)
 	}
+	a.AddEndpoint(NewEndpoint("192.0.2.10", 80, TransportTCP, EndpointResponsive))
+	if a.Endpoints[0].State != EndpointOpen {
+		t.Fatalf("Open must not downgrade to responsive, State=%q", a.Endpoints[0].State)
+	}
 }
 
 func TestObservationPayloadRoundTrip(t *testing.T) {

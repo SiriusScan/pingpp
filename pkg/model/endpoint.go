@@ -20,6 +20,10 @@ func (t Transport) Valid() bool {
 
 // EndpointState describes the observed state of an endpoint.
 // Do not reduce this to a boolean Open.
+//
+// Open means a collector confirmed protocol behavior. A successful TCP
+// connect without a protocol handshake is Responsive — accept-all
+// middleboxes (NLBs, firewalls) SYN-ACK every port.
 type EndpointState string
 
 const (

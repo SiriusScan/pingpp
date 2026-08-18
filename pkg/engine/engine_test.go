@@ -3,6 +3,7 @@ package engine_test
 import (
 	"context"
 	"net"
+	"net/http"
 	"testing"
 	"time"
 
@@ -10,6 +11,7 @@ import (
 	"github.com/SiriusScan/ping++/pkg/discovery/tcp"
 	"github.com/SiriusScan/ping++/pkg/engine"
 	"github.com/SiriusScan/ping++/pkg/model"
+	httpcol "github.com/SiriusScan/ping++/pkg/protocol/http"
 )
 
 func TestProfilePorts(t *testing.T) {
@@ -103,15 +105,57 @@ func TestEngineEnumerationPipeline(t *testing.T) {
 	}
 	found := false
 	for _, ep := range res.Asset.Endpoints {
-		if ep.Port == port && ep.State == model.EndpointOpen {
+		if ep.Port == port && ep.State == model.EndpointResponsive {
 			found = true
 		}
 	}
 	if !found {
-		t.Fatalf("expected open endpoint %d, got %+v", port, res.Asset.Endpoints)
+		t.Fatalf("expected responsive (connect-only) endpoint %d, got %+v", port, res.Asset.Endpoints)
 	}
 	if res.State.Reachability.State != model.ReachabilityConfirmed {
 		t.Fatalf("reachability=%q", res.State.Reachability.State)
+	}
+}
+
+func TestProtocolConfirmPromotesEndpointOpen(t *testing.T) {
+	ln, err := net.Listen("tcp", "127.0.0.1:8080")
+	if err != nil {
+		t.Skipf("need 8080 for HTTP prior: %v", err)
+	}
+	defer ln.Close()
+	go func() {
+		_ = http.Serve(ln, http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+			w.Header().Set("Server", "test-httpd")
+			_, _ = w.Write([]byte("<title>ok</title>"))
+		}))
+	}()
+
+	reg := engine.BuildDefaultRegistry(icmp.Register, tcp.Register, httpcol.Register)
+	eng, err := engine.NewEngine(engine.Options{
+		Profile:       engine.ProfileDefault,
+		SkipDiscovery: true,
+		TCPPorts:      []uint16{8080},
+		RatePerSecond: 1000,
+		Registry:      reg,
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	ctx, cancel := context.WithTimeout(context.Background(), 8*time.Second)
+	defer cancel()
+	res, err := eng.ScanTarget(ctx, "127.0.0.1")
+	if err != nil {
+		t.Fatal(err)
+	}
+	var state model.EndpointState
+	for _, ep := range res.Asset.Endpoints {
+		if ep.Port == 8080 {
+			state = ep.State
+		}
+	}
+	if state != model.EndpointOpen {
+		t.Fatalf("HTTP-confirmed port state=%q want open, endpoints=%+v", state, res.Asset.Endpoints)
 	}
 }
 

@@ -65,7 +65,12 @@ func (c *Collector) Run(ctx context.Context, in engine.CollectorInput) ([]model.
 			}
 		}
 	}
-	obs.Completeness = "full"
+	if payload.Pong || payload.Version != "" {
+		obs.Completeness = "full"
+	} else {
+		obs.Completeness = "none"
+		obs.Error = "no redis response"
+	}
 	_ = obs.SetPayload(payload)
 	return []model.ObservationRecord{obs}, nil
 }

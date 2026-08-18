@@ -56,8 +56,8 @@ func TestEnumerateAllRequestedPorts(t *testing.T) {
 		_ = o.DecodePayload(&p)
 		states[o.Endpoint.Port] = p.State
 	}
-	if states[openPort] != model.EndpointOpen {
-		t.Fatalf("open port state=%q", states[openPort])
+	if states[openPort] != model.EndpointResponsive {
+		t.Fatalf("connect-only port state=%q want responsive", states[openPort])
 	}
 	if states[closedPort] != model.EndpointClosed {
 		t.Fatalf("closed port state=%q (want closed/RST)", states[closedPort])
