@@ -1,0 +1,6 @@
+observation_type: ssh
+payload:
+  banner: SSH-2.0-OpenSSH_9.6
+expect:
+  product: OpenSSH
+  min_confidence: strong

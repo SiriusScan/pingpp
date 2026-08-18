@@ -1,0 +1,5 @@
+observation_type: smb
+payload:
+  os_build: "4.18.0"
+reject:
+  product: Windows

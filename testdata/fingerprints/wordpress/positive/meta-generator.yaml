@@ -1,0 +1,6 @@
+observation_type: http
+payload:
+  meta_generator: WordPress 6.4
+expect:
+  product: WordPress
+  min_confidence: probable

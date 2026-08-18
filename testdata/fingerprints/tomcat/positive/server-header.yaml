@@ -1,0 +1,6 @@
+observation_type: http
+payload:
+  server: Apache-Coyote/1.1
+expect:
+  product: Tomcat
+  min_confidence: strong

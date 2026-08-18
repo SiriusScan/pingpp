@@ -1,0 +1,14 @@
+id: nginx-server-header
+scope: service
+correlation_group: http_web_server
+inputs:
+  observation_type: http
+matches:
+  - field: server
+    regex: "(?i)^nginx"
+claims:
+  - kind: product
+    vendor: F5
+    product: nginx
+    certainty: strong
+    score: 90

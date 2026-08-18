@@ -1,0 +1,6 @@
+version: "2"
+
+issues:
+  # R1 freeze: do not hide duplicate errcheck/staticcheck findings.
+  max-same-issues: 0
+  max-issues-per-linter: 0

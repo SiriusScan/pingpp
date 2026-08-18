@@ -1,0 +1,6 @@
+observation_type: http
+payload:
+  server: Traefik
+expect:
+  product: Traefik
+  min_confidence: strong

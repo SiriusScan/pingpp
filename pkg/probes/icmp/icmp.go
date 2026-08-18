@@ -4,7 +4,6 @@ package icmp
 
 import (
 	"context"
-	"log"
 	"time"
 
 	probing "github.com/prometheus-community/pro-bing"
@@ -89,9 +88,6 @@ func (p *Probe) Probe(ctx context.Context, target string) (probes.ProbeResult, e
 		}
 		result.Details["packets_sent"] = "1"
 		result.Details["packets_recv"] = "1"
-		// #region agent log
-		log.Printf("[ICMP DEBUG] %s: RECEIVED response, TTL=%d, latency=%v (host ALIVE)", target, ttl, result.Latency)
-		// #endregion
 	} else {
 		result.Success = false
 		if err != nil {
@@ -99,9 +95,6 @@ func (p *Probe) Probe(ctx context.Context, target string) (probes.ProbeResult, e
 		} else {
 			result.Error = "no response"
 		}
-		// #region agent log
-		log.Printf("[ICMP DEBUG] %s: NO response, err=%v (host DOWN)", target, err)
-		// #endregion
 	}
 
 	return result, nil

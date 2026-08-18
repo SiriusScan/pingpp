@@ -1,0 +1,6 @@
+observation_type: http
+payload:
+  title: FortiGate
+expect:
+  vendor: Fortinet
+  min_confidence: hint

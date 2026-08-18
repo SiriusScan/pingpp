@@ -1,5 +1,5 @@
-# Binaries
-pingpp
+# Binaries (root artifact only; do not ignore cmd/pingpp/)
+/pingpp
 *.exe
 *.exe~
 *.dll

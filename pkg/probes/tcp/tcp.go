@@ -1,14 +1,13 @@
 // Package tcp provides TCP connection probe functionality.
-// It attempts connections to common ports to detect host liveliness.
+// It attempts connections to configured ports to detect host liveliness
+// and enumerate which endpoints accept connections.
 package tcp
 
 import (
 	"context"
-	"fmt"
-	"log"
 	"net"
+	"strconv"
 	"strings"
-	"syscall"
 	"time"
 
 	"github.com/SiriusScan/ping++/pkg/probes"
@@ -42,129 +41,103 @@ func (p *Probe) Name() string {
 	return "tcp"
 }
 
-// Probe executes TCP connection attempts to the target.
+// Probe executes TCP connection attempts to every configured port.
+// It does not stop after the first successful connection; all ports are
+// attempted so callers can enumerate open endpoints.
+//
+// Success is true when at least one port accepts a connection.
+// Per-port outcomes are recorded in Details:
+//   - open_ports: comma-separated ports that accepted connections
+//   - closed_ports: comma-separated ports that returned connection refused (RST)
+//   - filtered_ports: comma-separated ports that timed out or otherwise failed
+//
+// TTL is never set from the connected socket: IP_TTL via Getsockopt reflects
+// local transmit configuration, not the remote host's observed TTL.
 func (p *Probe) Probe(ctx context.Context, target string) (probes.ProbeResult, error) {
 	result := probes.NewProbeResult()
 	result.Protocol = "tcp"
 
-	startTime := time.Now()
-	portsTimedOut := 0
+	var openPorts, closedPorts, filteredPorts []int
+	var firstOpenPort int
+	var firstOpenLatency time.Duration
 
-	// Try each port until one succeeds
 	for _, port := range p.ports {
 		select {
 		case <-ctx.Done():
 			result.Error = "context cancelled"
+			writePortDetails(&result, openPorts, closedPorts, filteredPorts)
+			if len(openPorts) > 0 {
+				result.Success = true
+				result.Port = firstOpenPort
+				result.Latency = firstOpenLatency
+			}
 			return result, nil
 		default:
 		}
 
-		addr := fmt.Sprintf("%s:%d", target, port)
+		addr := net.JoinHostPort(target, strconv.Itoa(port))
 		start := time.Now()
 
 		conn, err := net.DialTimeout("tcp", addr, p.timeout)
 		latency := time.Since(start)
 
 		if err == nil {
-			// Connection successful - host is definitely alive
-			result.Success = true
-			result.Port = port
-			result.Latency = latency
-
-			// Try to get TTL from connection
-			if tcpConn, ok := conn.(*net.TCPConn); ok {
-				if ttl := getTTLFromConn(tcpConn); ttl > 0 {
-					result.TTL = ttl
-				}
+			_ = conn.Close()
+			openPorts = append(openPorts, port)
+			if firstOpenPort == 0 {
+				firstOpenPort = port
+				firstOpenLatency = latency
 			}
-
-			result.Details["connected_port"] = fmt.Sprintf("%d", port)
-			conn.Close()
-			// #region agent log
-			log.Printf("[TCP DEBUG] %s:%d CONNECTED in %v (host ALIVE)", target, port, latency)
-			// #endregion
-			return result, nil
+			continue
 		}
 
-		// Check if the error indicates the host is reachable but port is closed
 		if isConnectionRefused(err) {
-			// IMPORTANT: RST (connection refused) is NOT reliable for host detection.
-			// Gateways/routers often respond with RST for non-existent hosts.
-			//
-			// We NO LONGER trust RST as proof of host being alive.
-			// Only an actual TCP CONNECTED proves a host is alive.
-			// RST is logged but ignored for liveness detection.
-			totalElapsed := time.Since(startTime)
-
-			// #region agent log
-			log.Printf("[TCP DEBUG] %s:%d REFUSED in %v, total=%v, timeouts=%d (IGNORED - RST not reliable)",
-				target, port, latency, totalElapsed, portsTimedOut)
-			// #endregion
-			// Continue to next port - RST doesn't prove host is alive
+			closedPorts = append(closedPorts, port)
+			continue
 		}
 
-		// Check if this was a timeout
-		if isTimeout(err) {
-			portsTimedOut++
-			// #region agent log
-			log.Printf("[TCP DEBUG] %s:%d TIMEOUT after %v (timeouts=%d)", target, port, latency, portsTimedOut)
-			// #endregion
-		} else {
-			// #region agent log
-			log.Printf("[TCP DEBUG] %s:%d FAILED in %v: %v", target, port, latency, err)
-			// #endregion
-		}
+		// Timeouts and other errors are treated as filtered/unknown.
+		filteredPorts = append(filteredPorts, port)
 	}
 
-	// No ports responded
+	writePortDetails(&result, openPorts, closedPorts, filteredPorts)
+
+	if len(openPorts) > 0 {
+		result.Success = true
+		result.Port = firstOpenPort
+		result.Latency = firstOpenLatency
+		return result, nil
+	}
+
 	result.Success = false
 	result.Error = "no ports responded"
-	// #region agent log
-	log.Printf("[TCP DEBUG] %s: ALL PORTS FAILED after %v - marking as DOWN", target, time.Since(startTime))
-	// #endregion
 	return result, nil
 }
 
-// isTimeout checks if the error is a timeout error.
-func isTimeout(err error) bool {
-	if err == nil {
-		return false
+func writePortDetails(result *probes.ProbeResult, open, closed, filtered []int) {
+	if len(open) > 0 {
+		result.Details["open_ports"] = intsToCSV(open)
+		result.Details["connected_port"] = strconv.Itoa(open[0])
 	}
-	// Check for net.Error with Timeout() method
-	if netErr, ok := err.(net.Error); ok {
-		return netErr.Timeout()
+	if len(closed) > 0 {
+		result.Details["closed_ports"] = intsToCSV(closed)
 	}
-	errStr := err.Error()
-	return strings.Contains(errStr, "timeout") ||
-		strings.Contains(errStr, "i/o timeout")
+	if len(filtered) > 0 {
+		result.Details["filtered_ports"] = intsToCSV(filtered)
+	}
 }
 
-// getTTLFromConn attempts to get the TTL from a TCP connection.
-// This is platform-specific and may not work on all systems.
-func getTTLFromConn(conn *net.TCPConn) int {
-	rawConn, err := conn.SyscallConn()
-	if err != nil {
-		return 0
+func intsToCSV(ports []int) string {
+	parts := make([]string, len(ports))
+	for i, port := range ports {
+		parts[i] = strconv.Itoa(port)
 	}
-
-	var ttl int
-	err = rawConn.Control(func(fd uintptr) {
-		// Try to get TTL via socket option (Linux)
-		val, err := syscall.GetsockoptInt(int(fd), syscall.IPPROTO_IP, syscall.IP_TTL)
-		if err == nil {
-			ttl = val
-		}
-	})
-
-	if err != nil {
-		return 0
-	}
-
-	return ttl
+	return strings.Join(parts, ",")
 }
 
 // isConnectionRefused checks if the error is a connection refused error.
-// This indicates the host is up but the port is closed.
+// This indicates the host responded with RST (port closed); it is useful
+// endpoint state but is not treated as Success for this probe.
 func isConnectionRefused(err error) bool {
 	if err == nil {
 		return false
@@ -172,4 +145,9 @@ func isConnectionRefused(err error) bool {
 	errStr := err.Error()
 	return strings.Contains(errStr, "connection refused") ||
 		strings.Contains(errStr, "refused")
+}
+
+// Ports returns a copy of the configured port list.
+func (p *Probe) Ports() []int {
+	return append([]int(nil), p.ports...)
 }

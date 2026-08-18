@@ -1,0 +1,120 @@
+package cli_test
+
+import (
+	"bytes"
+	"strings"
+	"testing"
+
+	"github.com/SiriusScan/ping++/internal/cli"
+)
+
+func TestInfoAndCollectors(t *testing.T) {
+	var stdout, stderr bytes.Buffer
+	if code := cli.Run([]string{"info"}, &stdout, &stderr); code != 0 {
+		t.Fatalf("info code=%d stderr=%s", code, stderr.String())
+	}
+	if !strings.Contains(stdout.String(), "pkg/engine") {
+		t.Fatalf("info=%q", stdout.String())
+	}
+	stdout.Reset()
+	if code := cli.Run([]string{"collectors"}, &stdout, &stderr); code != 0 {
+		t.Fatalf("collectors code=%d stderr=%s", code, stderr.String())
+	}
+	if !strings.Contains(stdout.String(), "collect.http") {
+		t.Fatalf("collectors=%q", stdout.String())
+	}
+	stdout.Reset()
+	if code := cli.Run([]string{"profiles"}, &stdout, &stderr); code != 0 {
+		t.Fatalf("profiles code=%d", code)
+	}
+	if !strings.Contains(stdout.String(), "quick") || !strings.Contains(stdout.String(), "full") {
+		t.Fatalf("profiles=%q", stdout.String())
+	}
+}
+
+func TestVersion(t *testing.T) {
+	var stdout, stderr bytes.Buffer
+	code := cli.Run([]string{"version"}, &stdout, &stderr)
+	if code != 0 {
+		t.Fatalf("code=%d stderr=%s", code, stderr.String())
+	}
+	if !strings.Contains(stdout.String(), "pingpp") {
+		t.Fatalf("stdout=%q", stdout.String())
+	}
+}
+
+func TestScanUsage(t *testing.T) {
+	var stdout, stderr bytes.Buffer
+	code := cli.Run([]string{"scan"}, &stdout, &stderr)
+	if code != 2 {
+		t.Fatalf("code=%d stderr=%s", code, stderr.String())
+	}
+}
+
+func TestRejectsURL(t *testing.T) {
+	var stdout, stderr bytes.Buffer
+	code := cli.Run([]string{"scan", "https://example.com"}, &stdout, &stderr)
+	if code != 2 {
+		t.Fatalf("code=%d stderr=%s", code, stderr.String())
+	}
+	if !strings.Contains(stderr.String(), "URL") && !strings.Contains(stderr.String(), "unsupported") {
+		t.Fatalf("stderr=%s", stderr.String())
+	}
+}
+
+func TestScanTESTNETFast(t *testing.T) {
+	var stdout, stderr bytes.Buffer
+	code := cli.Run([]string{
+		"scan",
+		"--profile", "quick",
+		"--skip-discovery",
+		"--no-icmp",
+		"--tcp-ports", "none",
+		"--udp-ports", "none",
+		"--target-timeout", "2s",
+		"-t", "192.0.2.1",
+		"--format", "jsonl",
+	}, &stdout, &stderr)
+	if code != 0 && code != 1 {
+		t.Fatalf("code=%d stderr=%s stdout=%s", code, stderr.String(), stdout.String())
+	}
+	if !strings.Contains(stdout.String(), "pingpp.scan/v1") && !strings.Contains(stdout.String(), "192.0.2.1") {
+		t.Fatalf("stdout=%s stderr=%s", stdout.String(), stderr.String())
+	}
+}
+
+func TestScanHelpExitZero(t *testing.T) {
+	var stdout, stderr bytes.Buffer
+	code := cli.Run([]string{"scan", "--help"}, &stdout, &stderr)
+	if code != 0 {
+		t.Fatalf("code=%d stderr=%s", code, stderr.String())
+	}
+	if !strings.Contains(stdout.String(), "Usage:") {
+		t.Fatalf("stdout=%q", stdout.String())
+	}
+}
+
+func TestInvalidRateIsExitTwo(t *testing.T) {
+	var stdout, stderr bytes.Buffer
+	code := cli.Run([]string{"scan", "--rate", "-1", "-t", "192.0.2.1"}, &stdout, &stderr)
+	if code != 2 {
+		t.Fatalf("code=%d stderr=%s", code, stderr.String())
+	}
+}
+
+func TestRunTimeoutIsExitOne(t *testing.T) {
+	var stdout, stderr bytes.Buffer
+	code := cli.Run([]string{
+		"scan",
+		"--profile", "quick",
+		"--skip-discovery",
+		"--tcp-ports", "80",
+		"--udp-ports", "none",
+		"--run-timeout", "1ms",
+		"-t", "192.0.2.1",
+		"--format", "jsonl",
+	}, &stdout, &stderr)
+	if code != 1 {
+		t.Fatalf("code=%d stderr=%s stdout=%s", code, stderr.String(), stdout.String())
+	}
+}

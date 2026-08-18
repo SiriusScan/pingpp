@@ -166,10 +166,10 @@ func (p *Probe) tryHTTPPort(ctx context.Context, target string, port int) (serve
 	if err != nil {
 		return "", "", err
 	}
-	defer conn.Close()
+	defer func() { _ = conn.Close() }()
 
 	// Set read/write deadline
-	conn.SetDeadline(time.Now().Add(p.timeout))
+	_ = conn.SetDeadline(time.Now().Add(p.timeout))
 
 	// Send minimal HTTP HEAD request
 	request := fmt.Sprintf("HEAD / HTTP/1.1\r\nHost: %s\r\nConnection: close\r\n\r\n", target)

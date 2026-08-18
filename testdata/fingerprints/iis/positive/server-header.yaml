@@ -1,0 +1,6 @@
+observation_type: http
+payload:
+  server: Microsoft-IIS/10.0
+expect:
+  product: IIS
+  min_confidence: exact

@@ -1,0 +1,6 @@
+observation_type: http
+payload:
+  server: Apache/2.4.58
+expect:
+  product: Apache HTTP Server
+  min_confidence: strong

@@ -1,0 +1,233 @@
+{
+  "nginx": {
+    "cats": [22],
+    "headers": { "Server": "nginx(?:/([\\d.]+))?" },
+    "website": "https://nginx.org"
+  },
+  "Apache HTTP Server": {
+    "cats": [22],
+    "headers": { "Server": "Apache(?:/([\\d.]+))?" },
+    "website": "https://httpd.apache.org"
+  },
+  "Microsoft IIS": {
+    "cats": [22],
+    "headers": { "Server": "Microsoft-IIS(?:/([\\d.]+))?" },
+    "website": "https://www.iis.net"
+  },
+  "Caddy": {
+    "cats": [22],
+    "headers": { "Server": "caddy" },
+    "website": "https://caddyserver.com"
+  },
+  "OpenResty": {
+    "cats": [22],
+    "headers": { "Server": "openresty" },
+    "website": "https://openresty.org"
+  },
+  "Traefik": {
+    "cats": [22],
+    "headers": { "Server": "traefik" },
+    "website": "https://traefik.io"
+  },
+  "Envoy": {
+    "cats": [22],
+    "headers": { "Server": "envoy" },
+    "website": "https://www.envoyproxy.io"
+  },
+  "HAProxy": {
+    "cats": [22],
+    "headers": { "Server": "haproxy|HAProxy" },
+    "website": "https://www.haproxy.org"
+  },
+  "LiteSpeed": {
+    "cats": [22],
+    "headers": { "Server": "LiteSpeed" },
+    "website": "https://www.litespeedtech.com"
+  },
+  "lighttpd": {
+    "cats": [22],
+    "headers": { "Server": "lighttpd" },
+    "website": "https://www.lighttpd.net"
+  },
+  "Tomcat": {
+    "cats": [22],
+    "headers": { "Server": "Tomcat|Coyote" },
+    "website": "https://tomcat.apache.org"
+  },
+  "Jetty": {
+    "cats": [22],
+    "headers": { "Server": "Jetty" },
+    "website": "https://eclipse.dev/jetty"
+  },
+  "Grafana": {
+    "cats": [2],
+    "html": ["(?i)grafana"],
+    "meta": { "generator": "(?i)grafana" },
+    "website": "https://grafana.com"
+  },
+  "WordPress": {
+    "cats": [1],
+    "html": ["wp-content", "wp-includes"],
+    "meta": { "generator": "(?i)wordpress" },
+    "cookies": { "wordpress_": "", "wp-settings": "" },
+    "website": "https://wordpress.org"
+  },
+  "Drupal": {
+    "cats": [1],
+    "headers": { "X-Generator": "(?i)drupal" },
+    "meta": { "generator": "(?i)drupal" },
+    "website": "https://www.drupal.org"
+  },
+  "Joomla": {
+    "cats": [1],
+    "meta": { "generator": "(?i)joomla" },
+    "website": "https://www.joomla.org"
+  },
+  "Jenkins": {
+    "cats": [2],
+    "html": ["(?i)jenkins"],
+    "headers": { "X-Jenkins": "." },
+    "website": "https://www.jenkins.io"
+  },
+  "GitLab": {
+    "cats": [2],
+    "html": ["(?i)gitlab"],
+    "headers": { "X-Gitlab": "." },
+    "website": "https://gitlab.com"
+  },
+  "Prometheus": {
+    "cats": [2],
+    "html": ["(?i)prometheus"],
+    "website": "https://prometheus.io"
+  },
+  "Kibana": {
+    "cats": [2],
+    "html": ["(?i)kibana"],
+    "website": "https://www.elastic.co/kibana"
+  },
+  "Elasticsearch": {
+    "cats": [2],
+    "headers": { "X-Elastic-Product": "Elasticsearch" },
+    "website": "https://www.elastic.co"
+  },
+  "phpMyAdmin": {
+    "cats": [1],
+    "html": ["(?i)phpmyadmin"],
+    "website": "https://www.phpmyadmin.net"
+  },
+  "Next.js": {
+    "cats": [12],
+    "headers": { "X-Powered-By": "Next\\.js" },
+    "website": "https://nextjs.org"
+  },
+  "Express": {
+    "cats": [18],
+    "headers": { "X-Powered-By": "Express" },
+    "website": "https://expressjs.com"
+  },
+  "ASP.NET": {
+    "cats": [18],
+    "headers": { "X-Powered-By": "ASP\\.NET", "X-AspNet-Version": "." },
+    "website": "https://dotnet.microsoft.com"
+  },
+  "PHP": {
+    "cats": [27],
+    "headers": { "X-Powered-By": "PHP(?:/([\\d.]+))?" },
+    "website": "https://www.php.net"
+  },
+  "Laravel": {
+    "cats": [18],
+    "cookies": { "laravel_session": "" },
+    "website": "https://laravel.com"
+  },
+  "Django": {
+    "cats": [18],
+    "cookies": { "csrftoken": "" },
+    "website": "https://www.djangoproject.com"
+  },
+  "Ruby on Rails": {
+    "cats": [18],
+    "headers": { "X-Powered-By": "Phusion Passenger" },
+    "website": "https://rubyonrails.org"
+  },
+  "Cloudflare": {
+    "cats": [31],
+    "headers": { "Server": "cloudflare", "CF-Ray": "." },
+    "website": "https://www.cloudflare.com"
+  },
+  "Varnish": {
+    "cats": [23],
+    "headers": { "Via": "(?i)varnish", "X-Varnish": "." },
+    "website": "https://varnish-cache.org"
+  },
+  "React": {
+    "cats": [12],
+    "html": ["data-reactroot"],
+    "website": "https://react.dev"
+  },
+  "Vue.js": {
+    "cats": [12],
+    "html": ["data-v-[a-f0-9]{8}"],
+    "website": "https://vuejs.org"
+  },
+  "Angular": {
+    "cats": [12],
+    "html": ["ng-version=", "ng-app"],
+    "website": "https://angular.dev"
+  },
+  "jQuery": {
+    "cats": [12],
+    "html": ["jquery(?:\\.min)?\\.js"],
+    "website": "https://jquery.com"
+  },
+  "Bootstrap": {
+    "cats": [12],
+    "html": ["bootstrap(?:\\.min)?\\.(?:css|js)"],
+    "website": "https://getbootstrap.com"
+  },
+  "Swagger UI": {
+    "cats": [4],
+    "html": ["(?i)swagger"],
+    "website": "https://swagger.io"
+  },
+  "MinIO": {
+    "cats": [2],
+    "headers": { "Server": "MinIO" },
+    "website": "https://min.io"
+  },
+  "Harbor": {
+    "cats": [2],
+    "html": ["(?i)harbor"],
+    "website": "https://goharbor.io"
+  },
+  "Nexus": {
+    "cats": [2],
+    "html": ["(?i)sonatype|nexus"],
+    "website": "https://www.sonatype.com"
+  },
+  "Portainer": {
+    "cats": [2],
+    "html": ["(?i)portainer"],
+    "website": "https://www.portainer.io"
+  },
+  "Roundcube": {
+    "cats": [30],
+    "html": ["(?i)roundcube"],
+    "website": "https://roundcube.net"
+  },
+  "Zabbix": {
+    "cats": [2],
+    "html": ["(?i)zabbix"],
+    "website": "https://www.zabbix.com"
+  },
+  "Fortinet": {
+    "cats": [6],
+    "html": ["(?i)fortigate|fortinet|forti"],
+    "website": "https://www.fortinet.com"
+  },
+  "pfSense": {
+    "cats": [6],
+    "html": ["(?i)pfsense"],
+    "website": "https://www.pfsense.org"
+  }
+}

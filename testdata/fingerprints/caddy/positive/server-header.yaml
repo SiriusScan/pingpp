@@ -1,0 +1,6 @@
+observation_type: http
+payload:
+  server: Caddy
+expect:
+  product: Caddy
+  min_confidence: strong

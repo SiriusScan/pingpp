@@ -2,6 +2,8 @@ package runner
 
 import (
 	"encoding/json"
+	"strconv"
+	"strings"
 	"time"
 
 	"github.com/SiriusScan/ping++/fingerprint"
@@ -83,6 +85,12 @@ func NewResult(ip string) *Result {
 func (r *Result) AddProbeResult(pr probes.ProbeResult) {
 	r.Probes = append(r.Probes, pr)
 
+	// Always merge TCP enumeration details so closed/filtered ports are visible
+	// even when Success is false (no open ports).
+	if pr.Protocol == "tcp" {
+		r.mergeTCPPortDetails(pr)
+	}
+
 	if pr.Success {
 		r.IsAlive = true
 
@@ -91,13 +99,17 @@ func (r *Result) AddProbeResult(pr probes.ProbeResult) {
 			r.DiscoverySources = appendUnique(r.DiscoverySources, pr.Protocol)
 		}
 
-		// Track open ports
+		// Track open ports from Port field and from TCP open_ports detail.
 		if pr.Port > 0 {
 			r.OpenPorts = appendUniqueInt(r.OpenPorts, pr.Port)
 		}
+		for _, port := range parsePortCSV(pr.Details["open_ports"]) {
+			r.OpenPorts = appendUniqueInt(r.OpenPorts, port)
+		}
 
 		// Update TTL if this probe has one and we don't have one yet,
-		// or if this probe's TTL is more useful (non-zero)
+		// or if this probe's TTL is more useful (non-zero).
+		// Only probes that observe real remote TTL (e.g. ICMP) should set this.
 		if pr.TTL > 0 && (r.TTL == 0 || pr.TTL < r.TTL) {
 			r.TTL = pr.TTL
 		}
@@ -123,6 +135,39 @@ func (r *Result) AddProbeResult(pr probes.ProbeResult) {
 			r.Details[k] = v
 		}
 	}
+}
+
+// mergeTCPPortDetails records TCP enumeration outcomes regardless of Success.
+func (r *Result) mergeTCPPortDetails(pr probes.ProbeResult) {
+	for _, key := range []string{"open_ports", "closed_ports", "filtered_ports", "connected_port"} {
+		if v, ok := pr.Details[key]; ok && v != "" {
+			r.Details[key] = v
+		}
+	}
+	for _, port := range parsePortCSV(pr.Details["open_ports"]) {
+		r.OpenPorts = appendUniqueInt(r.OpenPorts, port)
+	}
+}
+
+// parsePortCSV parses a comma-separated list of port numbers.
+func parsePortCSV(s string) []int {
+	if s == "" {
+		return nil
+	}
+	parts := strings.Split(s, ",")
+	ports := make([]int, 0, len(parts))
+	for _, part := range parts {
+		part = strings.TrimSpace(part)
+		if part == "" {
+			continue
+		}
+		port, err := strconv.Atoi(part)
+		if err != nil || port <= 0 {
+			continue
+		}
+		ports = append(ports, port)
+	}
+	return ports
 }
 
 // appendUniqueInt appends an int to a slice only if it doesn't already exist.
@@ -170,7 +215,7 @@ func (r *Result) String() string {
 	if r.IsAlive {
 		result += " OS:" + r.OSFamily
 		if r.TTL > 0 {
-			result += " TTL:" + string(rune(r.TTL+'0'))
+			result += " TTL:" + strconv.Itoa(r.TTL)
 		}
 	}
 

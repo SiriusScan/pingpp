@@ -1,0 +1,6 @@
+observation_type: snmp
+payload:
+  sys_descr: Cisco IOS Software, C3750 Software
+expect:
+  vendor: Cisco
+  min_confidence: strong

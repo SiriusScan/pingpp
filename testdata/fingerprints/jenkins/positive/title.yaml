@@ -1,0 +1,6 @@
+observation_type: http
+payload:
+  title: Dashboard [Jenkins]
+expect:
+  product: Jenkins
+  min_confidence: hint

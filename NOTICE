@@ -1,0 +1,14 @@
+Third-party fingerprint corpora shipped with ping++
+
+1. Rapid7 Recog XML (fingerprints/recog/)
+   License: BSD-3-Clause
+   Source: https://github.com/rapid7/recog
+   See fingerprints/recog/NOTICE
+
+2. Wappalyzer technology signatures (fingerprints/wappalyzer/technologies.json)
+   This tree ships a reduced signature subset used only for HTTP product
+   matching. Upstream Wappalyzer is MIT-licensed.
+   Source: https://github.com/wappalyzer/wappalyzer
+
+ping++ itself does not claim the entire Recog git tree or a complete
+Wappalyzer dataset. See docs/prototype-known-gaps.md R11.

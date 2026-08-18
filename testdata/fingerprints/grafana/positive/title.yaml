@@ -1,0 +1,6 @@
+observation_type: http
+payload:
+  title: Grafana
+expect:
+  product: Grafana
+  min_confidence: hint

@@ -1,0 +1,5 @@
+observation_type: http
+payload:
+  title: Welcome
+reject:
+  product: Jenkins

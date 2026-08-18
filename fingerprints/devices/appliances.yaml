@@ -1,0 +1,283 @@
+- id: device-cisco-http
+  scope: device
+  correlation_group: cisco_web_ui
+  inputs:
+    observation_type: http
+  matches:
+    - field: title
+      regex: "(?i)cisco"
+  claims:
+    - kind: device
+      vendor: Cisco
+      product: Cisco
+      certainty: hint
+      score: 55
+    - kind: device
+      vendor: Cisco
+      device_type: network_device
+      certainty: probable
+      score: 75
+- id: device-fortinet-http
+  scope: device
+  correlation_group: fortinet_web_ui
+  inputs:
+    observation_type: http
+  matches:
+    - field: title
+      regex: "(?i)fortinet|fortigate|forti"
+  claims:
+    - kind: device
+      vendor: Fortinet
+      certainty: hint
+      score: 55
+- id: device-paloalto-http
+  scope: device
+  correlation_group: paloalto_web_ui
+  inputs:
+    observation_type: http
+  matches:
+    - field: title
+      regex: "(?i)palo\\s*alto|panos|globalprotect"
+  claims:
+    - kind: device
+      vendor: Palo Alto Networks
+      certainty: hint
+      score: 55
+- id: device-vmware-http
+  scope: device
+  correlation_group: vmware_web_ui
+  inputs:
+    observation_type: http
+  matches:
+    - field: title
+      regex: "(?i)vmware|vsphere|esxi"
+  claims:
+    - kind: device
+      vendor: VMware
+      certainty: hint
+      score: 55
+- id: device-synology-http
+  scope: device
+  correlation_group: synology_web_ui
+  inputs:
+    observation_type: http
+  matches:
+    - field: title
+      regex: "(?i)synology|diskstation"
+  claims:
+    - kind: device
+      vendor: Synology
+      device_type: nas
+      certainty: hint
+      score: 55
+- id: device-qnap-http
+  scope: device
+  correlation_group: qnap_web_ui
+  inputs:
+    observation_type: http
+  matches:
+    - field: title
+      regex: "(?i)qnap"
+  claims:
+    - kind: device
+      vendor: QNAP
+      device_type: nas
+      certainty: hint
+      score: 55
+- id: device-idrac-http
+  scope: device
+  correlation_group: idrac_web_ui
+  inputs:
+    observation_type: http
+  matches:
+    - field: title
+      regex: "(?i)idrac|dell.*remote"
+  claims:
+    - kind: device
+      vendor: Dell
+      product: iDRAC
+      device_type: bmc
+      certainty: hint
+      score: 55
+- id: device-ilo-http
+  scope: device
+  correlation_group: ilo_web_ui
+  inputs:
+    observation_type: http
+  matches:
+    - field: title
+      regex: "(?i)\\biLO\\b|HPE.*Integrated"
+  claims:
+    - kind: device
+      vendor: HPE
+      product: iLO
+      device_type: bmc
+      certainty: hint
+      score: 55
+- id: device-pfsense-http
+  scope: device
+  correlation_group: pfsense_web_ui
+  inputs:
+    observation_type: http
+  matches:
+    - field: title
+      regex: "(?i)pfsense"
+  claims:
+    - kind: device
+      vendor: Netgate
+      product: pfSense
+      device_type: firewall
+      certainty: hint
+      score: 55
+- id: device-opnsense-http
+  scope: device
+  correlation_group: opnsense_web_ui
+  inputs:
+    observation_type: http
+  matches:
+    - field: title
+      regex: "(?i)opnsense"
+  claims:
+    - kind: device
+      product: OPNsense
+      device_type: firewall
+      certainty: hint
+      score: 55
+- id: device-mikrotik-http
+  scope: device
+  correlation_group: mikrotik_web_ui
+  inputs:
+    observation_type: http
+  matches:
+    - field: title
+      regex: "(?i)mikrotik|routeros"
+  claims:
+    - kind: device
+      vendor: MikroTik
+      certainty: hint
+      score: 55
+- id: device-ubiquiti-http
+  scope: device
+  correlation_group: ubiquiti_web_ui
+  inputs:
+    observation_type: http
+  matches:
+    - field: title
+      regex: "(?i)ubiquiti|unifi|edgeos"
+  claims:
+    - kind: device
+      vendor: Ubiquiti
+      certainty: hint
+      score: 55
+- id: device-sonicwall-http
+  scope: device
+  correlation_group: sonicwall_web_ui
+  inputs:
+    observation_type: http
+  matches:
+    - field: title
+      regex: "(?i)sonicwall"
+  claims:
+    - kind: device
+      vendor: SonicWall
+      device_type: firewall
+      certainty: hint
+      score: 55
+- id: device-checkpoint-http
+  scope: device
+  correlation_group: checkpoint_web_ui
+  inputs:
+    observation_type: http
+  matches:
+    - field: title
+      regex: "(?i)check\\s*point|gaia"
+  claims:
+    - kind: device
+      vendor: Check Point
+      certainty: hint
+      score: 55
+- id: device-f5-http
+  scope: device
+  correlation_group: f5_web_ui
+  inputs:
+    observation_type: http
+  matches:
+    - field: title
+      regex: "(?i)f5|big-?ip|tmui"
+  claims:
+    - kind: device
+      vendor: F5
+      certainty: hint
+      score: 55
+- id: device-citrix-http
+  scope: device
+  correlation_group: citrix_web_ui
+  inputs:
+    observation_type: http
+  matches:
+    - field: title
+      regex: "(?i)citrix|netscaler|adc"
+  claims:
+    - kind: device
+      vendor: Citrix
+      certainty: probable
+      score: 78
+- id: device-proxmox-http
+  scope: device
+  correlation_group: proxmox_web_ui
+  inputs:
+    observation_type: http
+  matches:
+    - field: title
+      regex: "(?i)proxmox"
+  claims:
+    - kind: device
+      vendor: Proxmox
+      product: Proxmox VE
+      certainty: hint
+      score: 55
+- id: device-juniper-http
+  scope: device
+  correlation_group: juniper_web_ui
+  inputs:
+    observation_type: http
+  matches:
+    - field: title
+      regex: "(?i)juniper|junos"
+  claims:
+    - kind: device
+      vendor: Juniper
+      certainty: hint
+      score: 55
+- id: device-arista-http
+  scope: device
+  correlation_group: arista_web_ui
+  inputs:
+    observation_type: http
+  matches:
+    - field: title
+      regex: "(?i)arista"
+  claims:
+    - kind: device
+      vendor: Arista
+      certainty: hint
+      score: 55
+- id: snmp-cisco-sysdescr
+  scope: device
+  correlation_group: snmp_sys
+  inputs:
+    observation_type: snmp
+  matches:
+    - field: sys_descr
+      regex: "(?i)cisco"
+  claims:
+    - kind: device
+      vendor: Cisco
+      certainty: strong
+      score: 92
+    - kind: os
+      vendor: Cisco
+      product: Cisco IOS
+      family: cisco
+      certainty: probable
+      score: 80
