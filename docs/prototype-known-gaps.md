@@ -391,6 +391,17 @@ Known debt:
 
 ---
 
+## Production runner (separate track)
+
+Engine R1–R18 stays the scanning intelligence. Production `cmd/pingpp` /
+Runner V2 is a **new execution layer**, not a flag refresh on `pkg/runner`.
+
+Frozen contract: [runner-v2.md](runner-v2.md). Sequence is C1–C16 in that
+file. Do not start `cmd/pingpp` until C2, C3, C5, and C8 land. Do not grow
+legacy `pkg/runner.Result`.
+
+---
+
 ## Standing rules
 
 - After port-associated collectors return NoMatch, continue the general fallback sequence.
