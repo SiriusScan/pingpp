@@ -102,6 +102,8 @@ type HTTPObservation struct {
 	Location         string              `json:"location,omitempty"`
 	CSP              string              `json:"csp,omitempty"`
 	BodyLength       int64               `json:"body_length,omitempty"`
+	Truncated        bool                `json:"truncated,omitempty"`
+	EffectiveURL     string              `json:"effective_url,omitempty"`
 	RawBodySHA256    string              `json:"raw_body_sha256,omitempty"`
 	NormalizedSHA256 string              `json:"normalized_body_sha256,omitempty"`
 	SimHash          uint64              `json:"simhash,omitempty"`

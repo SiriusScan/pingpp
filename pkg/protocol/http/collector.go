@@ -11,6 +11,7 @@ import (
 	"io"
 	"net"
 	"net/http"
+	"net/url"
 	"regexp"
 	"strings"
 	"time"
@@ -88,24 +89,30 @@ func (c *Collector) RunResult(ctx context.Context, in engine.CollectorInput) (en
 		scheme = "https"
 	}
 	url := fmt.Sprintf("%s://%s/", scheme, net.JoinHostPort(in.Endpoint.Address, fmt.Sprintf("%d", in.Endpoint.Port)))
-
-	client := &http.Client{
-		Timeout: timeout,
-		CheckRedirect: func(req *http.Request, via []*http.Request) error {
-			if len(via) >= maxRedirects {
-				return http.ErrUseLastResponse
-			}
-			return nil
-		},
-		Transport: &http.Transport{
-			TLSClientConfig: &tls.Config{
-				InsecureSkipVerify: true,
-				ServerName:         hostHeader,
-				MinVersion:         tls.VersionTLS10,
-			},
-			DisableKeepAlives: true,
-		},
+	if path, ok := in.Extra["path"]; ok && path != "" {
+		url = fmt.Sprintf("%s://%s%s", scheme, net.JoinHostPort(in.Endpoint.Address, fmt.Sprintf("%d", in.Endpoint.Port)), path)
 	}
+
+	var chain []model.Redirect
+	client := newHTTPClient(timeout, hostHeader, func(req *http.Request, via []*http.Request) error {
+		prev := via[len(via)-1]
+		status := 0
+		loc := req.URL.String()
+		if prev.Response != nil {
+			status = prev.Response.StatusCode
+			if l := prev.Response.Header.Get("Location"); l != "" {
+				loc = l
+			}
+		}
+		chain = append(chain, model.Redirect{StatusCode: status, Location: loc, URL: prev.URL.String()})
+		if len(via) >= maxRedirects {
+			return http.ErrUseLastResponse
+		}
+		if !sameHTTPHost(prev.URL, req.URL) {
+			return http.ErrUseLastResponse
+		}
+		return nil
+	})
 
 	req, err := http.NewRequestWithContext(ctx, http.MethodGet, url, nil)
 	if err != nil {
@@ -143,8 +150,19 @@ func (c *Collector) RunResult(ctx context.Context, in engine.CollectorInput) (en
 	}
 	defer func() { _ = resp.Body.Close() }()
 
-	body, _ := io.ReadAll(io.LimitReader(resp.Body, maxBody))
+	body, truncated := readLimited(resp.Body, maxBody)
 	payload := buildHTTPObservation(url, resp, body)
+	payload.Truncated = truncated
+	if resp.Request != nil && resp.Request.URL != nil {
+		payload.EffectiveURL = resp.Request.URL.String()
+	}
+	payload.RedirectChain = chain
+	if in.Artifacts != nil && len(body) > 0 {
+		if art, err := in.Artifacts.Put("text/html", body, "http body"); err == nil {
+			obs.ArtifactIDs = append(obs.ArtifactIDs, art.ID)
+		}
+	}
+	fetchFavicon(ctx, client, &payload, in)
 	obs.Completeness = "full"
 	if err := obs.SetPayload(payload); err != nil {
 		return engine.CollectorResult{}, err
@@ -199,6 +217,8 @@ func buildHTTPObservation(url string, resp *http.Response, body []byte) model.HT
 		Location:         resp.Header.Get("Location"),
 		CSP:              resp.Header.Get("Content-Security-Policy"),
 		BodyLength:       int64(len(body)),
+		Truncated:        false,
+		EffectiveURL:     url,
 		RawBodySHA256:    hex.EncodeToString(rawHash[:]),
 		NormalizedSHA256: hex.EncodeToString(normHash[:]),
 		SimHash:          simpleSimHash(body),
@@ -223,7 +243,87 @@ func extractFaviconHint(body []byte) *model.FaviconObservation {
 	if m := faviconLinkRe.FindSubmatch(body); len(m) > 1 {
 		return &model.FaviconObservation{URL: string(m[1])}
 	}
-	return nil
+	return &model.FaviconObservation{URL: "/favicon.ico"}
+}
+
+func newHTTPClient(timeout time.Duration, serverName string, redirect func(*http.Request, []*http.Request) error) *http.Client {
+	return &http.Client{
+		Timeout:       timeout,
+		CheckRedirect: redirect,
+		Transport: &http.Transport{
+			TLSClientConfig: &tls.Config{
+				InsecureSkipVerify: true,
+				ServerName:         serverName,
+				MinVersion:         tls.VersionTLS10,
+			},
+			DisableKeepAlives: true,
+		},
+	}
+}
+
+func sameHTTPHost(a, b *url.URL) bool {
+	if a == nil || b == nil {
+		return false
+	}
+	return strings.EqualFold(a.Hostname(), b.Hostname())
+}
+
+func readLimited(r io.Reader, max int) ([]byte, bool) {
+	body, _ := io.ReadAll(io.LimitReader(r, int64(max)+1))
+	if len(body) > max {
+		return body[:max], true
+	}
+	return body, false
+}
+
+func fetchFavicon(ctx context.Context, client *http.Client, payload *model.HTTPObservation, in engine.CollectorInput) {
+	if payload == nil {
+		return
+	}
+	base := payload.EffectiveURL
+	if base == "" {
+		base = payload.URL
+	}
+	icon := "/favicon.ico"
+	if payload.Favicon != nil && payload.Favicon.URL != "" {
+		icon = payload.Favicon.URL
+	}
+	ref, err := url.Parse(base)
+	if err != nil {
+		return
+	}
+	u, err := ref.Parse(icon)
+	if err != nil || !sameHTTPHost(ref, u) {
+		if payload.Favicon == nil {
+			payload.Favicon = &model.FaviconObservation{URL: icon}
+		}
+		return
+	}
+	req, err := http.NewRequestWithContext(ctx, http.MethodGet, u.String(), nil)
+	if err != nil {
+		return
+	}
+	resp, err := client.Do(req)
+	if err != nil {
+		return
+	}
+	defer func() { _ = resp.Body.Close() }()
+	if resp.StatusCode != http.StatusOK {
+		return
+	}
+	data, _ := io.ReadAll(io.LimitReader(resp.Body, 64*1024))
+	if len(data) == 0 {
+		return
+	}
+	sum := sha256.Sum256(data)
+	payload.Favicon = &model.FaviconObservation{
+		URL:    u.String(),
+		SHA256: hex.EncodeToString(sum[:]),
+		MMH3:   faviconMMH3(data),
+	}
+	if in.Artifacts != nil {
+		_, _ = in.Artifacts.Put("image/x-icon", data, "favicon")
+	}
 }
 
 // simpleSimHash is a lightweight 64-bit token hash for fuzzy body similarity.
@@ -254,6 +354,9 @@ func simpleSimHash(body []byte) uint64 {
 func Register(r *engine.Registry) {
 	r.MustRegister(collectorID, func(cfg engine.Config) (engine.Collector, error) {
 		return New(cfg)
+	})
+	r.MustRegister(enrichID, func(cfg engine.Config) (engine.Collector, error) {
+		return NewEnrich(cfg)
 	})
 }
 
