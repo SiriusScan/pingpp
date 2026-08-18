@@ -1,6 +1,3 @@
-// Package appscanner provides integration with the Sirius app-scanner.
-// It implements the FingerprintStrategy interface to enable ping++ as
-// the fingerprinting engine in the scan pipeline.
 package appscanner
 
 import (
@@ -8,107 +5,121 @@ import (
 	"strconv"
 	"time"
 
-	"github.com/SiriusScan/ping++/fingerprint"
+	"github.com/SiriusScan/ping++/pkg/engine"
+	"github.com/SiriusScan/ping++/pkg/fingerprint"
+	"github.com/SiriusScan/ping++/pkg/model"
+	"github.com/SiriusScan/ping++/pkg/output"
 	"github.com/SiriusScan/ping++/pkg/runner"
+	"github.com/SiriusScan/ping++/pkg/scan"
 )
 
 // FingerprintResult mirrors the app-scanner FingerprintResult type.
-// This allows ping++ to be used without importing app-scanner directly.
 type FingerprintResult struct {
-	IsAlive  bool              `json:"is_alive"`
-	OSFamily string            `json:"os_family"`
-	TTL      int               `json:"ttl"`
-	Details  map[string]string `json:"details"`
+	IsAlive  bool                   `json:"is_alive"`
+	OSFamily string                 `json:"os_family"`
+	TTL      int                    `json:"ttl"`
+	Details  map[string]string      `json:"details"`
+	Asset    map[string]interface{} `json:"asset,omitempty"`
 }
 
-// PingPlusPlusStrategy implements the FingerprintStrategy interface
-// from app-scanner using ping++ for actual fingerprinting.
+// PingPlusPlusStrategy implements FingerprintStrategy using the new engine when possible.
 type PingPlusPlusStrategy struct {
-	// ProbeTypes specifies which probes to use
-	ProbeTypes []string
-
-	// Timeout is the per-probe timeout
-	Timeout time.Duration
-
-	// DisableICMP disables ICMP probing (for unprivileged mode)
+	ProbeTypes  []string
+	Timeout     time.Duration
 	DisableICMP bool
+	UseEngine   bool
 }
 
-// NewStrategy creates a new PingPlusPlusStrategy with default settings.
+// NewStrategy creates a strategy with defaults.
 func NewStrategy() *PingPlusPlusStrategy {
 	return &PingPlusPlusStrategy{
 		ProbeTypes: []string{"icmp", "tcp"},
 		Timeout:    3 * time.Second,
+		UseEngine:  true,
 	}
 }
 
 // NewStrategyWithOptions creates a strategy with custom options.
 func NewStrategyWithOptions(probeTypes []string, timeout time.Duration, disableICMP bool) *PingPlusPlusStrategy {
-	return &PingPlusPlusStrategy{
-		ProbeTypes:  probeTypes,
-		Timeout:     timeout,
-		DisableICMP: disableICMP,
-	}
+	return &PingPlusPlusStrategy{ProbeTypes: probeTypes, Timeout: timeout, DisableICMP: disableICMP, UseEngine: true}
 }
 
 // Fingerprint performs host fingerprinting on the target.
-// This method signature matches the app-scanner FingerprintStrategy interface.
-//
-// OS detection uses the runner's AggregateFromProbes path exclusively.
-// Do not re-run the legacy TTL-only AggregateOSFromProbes here — that
-// duplicated and could diverge from the primary aggregation result.
 func (p *PingPlusPlusStrategy) Fingerprint(target string) (FingerprintResult, error) {
-	result := FingerprintResult{
-		Details: make(map[string]string),
+	if p.UseEngine {
+		return p.fingerprintEngine(target)
 	}
+	return p.fingerprintLegacyRunner(target)
+}
 
+func (p *PingPlusPlusStrategy) fingerprintEngine(target string) (FingerprintResult, error) {
+	result := FingerprintResult{Details: map[string]string{}}
+	reg := scan.NewRegistry()
+	eng, err := engine.NewEngine(engine.Options{
+		Profile:       engine.ProfileQuick,
+		SkipDiscovery: p.DisableICMP,
+		RatePerSecond: 200,
+		Registry:      reg,
+	})
+	if err != nil {
+		return result, err
+	}
+	ctx, cancel := context.WithTimeout(context.Background(), p.Timeout*5)
+	defer cancel()
+	res, err := eng.ScanTarget(ctx, target)
+	if err != nil {
+		return result, err
+	}
+	fp := fingerprint.NewEngine()
+	_ = fp.LoadBuiltinPacks(fingerprint.RepoFingerprintsRoot())
+	claims := fp.Match(res.Asset.Observations)
+	claims = append(claims, fingerprint.FuseOS(claims)...)
+	for _, c := range claims {
+		res.Asset.AddClaim(c)
+	}
+	alive := res.State.Reachability.State == model.ReachabilityConfirmed ||
+		res.State.Reachability.State == model.ReachabilityProbable
+	sirius := output.ToSiriusHost(res.Asset, alive)
+	result.IsAlive = alive
+	if os, ok := sirius["os"].(string); ok {
+		result.OSFamily = os
+	}
+	result.Asset = sirius
+	if conf, ok := sirius["confidence"].(float64); ok {
+		result.Details["confidence"] = strconv.FormatFloat(conf, 'f', 2, 64)
+	}
+	return result, nil
+}
+
+func (p *PingPlusPlusStrategy) fingerprintLegacyRunner(target string) (FingerprintResult, error) {
+	result := FingerprintResult{Details: make(map[string]string)}
 	opts := runner.DefaultOptions()
 	opts.Targets = []string{target}
 	opts.ProbeTypes = p.ProbeTypes
 	opts.Timeout = p.Timeout
 	opts.DisableICMP = p.DisableICMP
 	opts.Threads = 1
-
 	var scanResult *runner.Result
-	opts.OnResult = func(r *runner.Result) {
-		scanResult = r
-	}
-
+	opts.OnResult = func(r *runner.Result) { scanResult = r }
 	r, err := runner.NewRunner(opts)
 	if err != nil {
 		return result, err
 	}
 	defer r.Close()
-
 	ctx, cancel := context.WithTimeout(context.Background(), p.Timeout*5)
 	defer cancel()
-
 	if err := r.RunEnumeration(ctx); err != nil {
 		return result, err
 	}
-
 	if scanResult != nil {
 		result.IsAlive = scanResult.IsAlive
 		result.OSFamily = scanResult.OSFamily
 		result.TTL = scanResult.TTL
 		result.Details = scanResult.Details
 		if result.Details == nil {
-			result.Details = make(map[string]string)
+			result.Details = map[string]string{}
 		}
-
-		// Surface confidence and hop estimate from the runner's already-computed
-		// aggregation rather than invoking a second OS aggregation path.
 		result.Details["confidence"] = strconv.FormatFloat(scanResult.OSConfidence, 'f', 2, 64)
-		if scanResult.TTL > 0 {
-			result.Details["hops"] = strconv.Itoa(fingerprint.EstimateHops(scanResult.TTL))
-		}
-		if scanResult.OSVersion != "" {
-			result.Details["os_version"] = scanResult.OSVersion
-		}
-		if scanResult.OSReason != "" {
-			result.Details["os_reason"] = scanResult.OSReason
-		}
 	}
-
 	return result, nil
 }
