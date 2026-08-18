@@ -141,9 +141,9 @@ Owned paths:
 
 Tasks:
 
-- [ ] FileStore
+- [x] FileStore
 - [ ] Global network-op limiter + host concurrency
-- [ ] Streaming TargetSource
+- [x] Streaming TargetSource
 - [ ] Runner.Run
 
 ## Stage 5: Output and CLI (C10–C14)
@@ -177,18 +177,30 @@ Tasks:
 
 ```yaml
 goal_id: runner-v2
-task_id: runner-v2.s1.t001
-stage: "1 Freeze contract (C1)"
-cycle: 0
+task_id: runner-v2.s2.t001
+stage: "2 Engine prerequisites (C2)"
+cycle: 1
 attempt: 1
-assigned_role: parent
+assigned_role: grok
 owned_paths:
-  - docs/runner-v2.md
-  - programs/runner-v2/PROGRAM.md
+  - pkg/engine/
+  - pkg/metrics/
+  - pkg/protocol/mqtt/
+  - pkg/protocol/amqp/
+  - pkg/protocol/vnc/
+  - pkg/protocol/socks/
+  - pkg/protocol/smb/
+  - integration/appscanner/
 acceptance_criteria:
-  - Frozen contract covers layering, Config, Session, targets, schema, artifacts, exit codes, C1–C16, and C12 gate
-  - No cmd/pingpp implementation in this task
+  - mergeScanState copies Matched, RuledOut, reachability reasons, and meter snapshot
+  - MaxNetworkOps is per user target across all resolved addresses
+  - executeCollector recovers panics as OutcomeInternalError
+  - protocol_matches counts ClaimProtocol, not collector success; empty outcome+error is not a match
+  - MQTT/AMQP/VNC/SOCKS implement ResultCollector with positive and negative tests
+  - DisableICMP removes discovery.icmp only; SkipDiscovery still skips the whole stage
+  - go test ./... and go test -race ./... pass
 validation_commands:
-  - test -f docs/runner-v2.md
-next_action: Commit C1; next bounded task is C2 engine prerequisites
+  - go test ./...
+  - go test -race ./pkg/engine ./pkg/metrics ./pkg/protocol/...
+next_action: Implement C2 engine prerequisites; C6 FileStore may run in parallel on pkg/artifact only
 ```
