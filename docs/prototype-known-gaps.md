@@ -37,7 +37,7 @@ Reviewed prototype commit: `bfef5cb`.
 
 ## Current head
 
-This commit — R11b–R18: honest R11–R14 completion plus embed/corpus, ScanOptions, multi-address, runtime metrics.
+This commit (`9403a4d`) — R11b–R18: honest R11–R14 completion plus embed/corpus, ScanOptions, multi-address, runtime metrics.
 
 Canonical path:
 
