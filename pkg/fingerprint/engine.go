@@ -10,7 +10,6 @@ import (
 	"os"
 	"path/filepath"
 	"regexp"
-	"sort"
 	"strings"
 
 	"github.com/SiriusScan/ping++/pkg/model"
@@ -212,7 +211,7 @@ func (e *Engine) Match(observations []model.ObservationRecord) []model.Claim {
 			}
 		}
 	}
-	return Fuse(raw)
+	return Compose(raw)
 }
 
 func scoreFromTier(t model.ConfidenceTier) float64 {
@@ -333,80 +332,3 @@ func flatten(prefix string, v any, out map[string]string) {
 	}
 }
 
-// Fuse applies correlation-group and independent evidence combination.
-// Only the strongest claim per (kind, product/value, correlation_group) is kept
-// for scoring; independent groups combine via 1 - ∏(1-s).
-func Fuse(claims []model.Claim) []model.Claim {
-	if len(claims) == 0 {
-		return nil
-	}
-
-	// Group by claim identity key + correlation group; keep strongest score.
-	type key struct {
-		kind  model.ClaimKind
-		ident string
-		cg    string
-	}
-	best := map[key]model.Claim{}
-	for _, c := range claims {
-		ident := firstNonEmpty(c.Product, c.Value, c.Family, c.Vendor)
-		k := key{kind: c.Kind, ident: strings.ToLower(ident), cg: c.CorrelationGroup}
-		if prev, ok := best[k]; !ok || c.Score > prev.Score {
-			best[k] = c
-		}
-	}
-
-	// Merge independent correlation groups for same kind+ident.
-	type identKey struct {
-		kind  model.ClaimKind
-		ident string
-	}
-	groups := map[identKey][]model.Claim{}
-	for k, c := range best {
-		ik := identKey{kind: k.kind, ident: k.ident}
-		groups[ik] = append(groups[ik], c)
-	}
-
-	var out []model.Claim
-	for _, list := range groups {
-		sort.Slice(list, func(i, j int) bool { return list[i].Score > list[j].Score })
-		combined := list[0]
-		// Normalize scores to 0..1 for combination
-		s := 1.0
-		var evidence []string
-		var rules []string
-		var contradictions []string
-		for _, c := range list {
-			p := c.Score
-			if p > 1 {
-				p = p / 100
-			}
-			s *= (1 - p)
-			evidence = append(evidence, c.EvidenceIDs...)
-			rules = append(rules, c.RuleIDs...)
-			contradictions = append(contradictions, c.ContradictionIDs...)
-		}
-		combinedScore := (1 - s) * 100
-		combined.Score = combinedScore
-		combined.Confidence = model.TierFromScore(combinedScore)
-		combined.EvidenceIDs = unique(evidence)
-		combined.RuleIDs = unique(rules)
-		combined.ContradictionIDs = unique(contradictions)
-		out = append(out, combined)
-	}
-	sort.Slice(out, func(i, j int) bool { return out[i].Score > out[j].Score })
-	return out
-}
-
-func unique(in []string) []string {
-	seen := map[string]bool{}
-	var out []string
-	for _, s := range in {
-		if s == "" || seen[s] {
-			continue
-		}
-		seen[s] = true
-		out = append(out, s)
-	}
-	return out
-}
