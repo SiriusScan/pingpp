@@ -109,6 +109,9 @@ type HTTPObservation struct {
 	SimHash          uint64              `json:"simhash,omitempty"`
 	Favicon          *FaviconObservation `json:"favicon,omitempty"`
 	RedirectChain    []Redirect          `json:"redirect_chain,omitempty"`
+	// Body is filled at fingerprint time from artifacts; collectors should not
+	// put large bodies here.
+	Body string `json:"body,omitempty"`
 }
 
 // FaviconObservation holds favicon hash material.

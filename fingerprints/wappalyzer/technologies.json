@@ -1,0 +1,35 @@
+{
+  "nginx": {
+    "cats": [22],
+    "headers": {
+      "Server": "nginx(?:/([\\d.]+))?"
+    },
+    "website": "https://nginx.org"
+  },
+  "Apache HTTP Server": {
+    "cats": [22],
+    "headers": {
+      "Server": "Apache(?:/([\\d.]+))?"
+    },
+    "website": "https://httpd.apache.org"
+  },
+  "Grafana": {
+    "cats": [2],
+    "html": ["(?i)grafana"],
+    "meta": {
+      "generator": "(?i)grafana"
+    },
+    "website": "https://grafana.com"
+  },
+  "WordPress": {
+    "cats": [1],
+    "html": ["wp-content"],
+    "meta": {
+      "generator": "(?i)wordpress"
+    },
+    "cookies": {
+      "wordpress_": ""
+    },
+    "website": "https://wordpress.org"
+  }
+}

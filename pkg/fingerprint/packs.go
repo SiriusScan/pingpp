@@ -1,16 +1,15 @@
 package fingerprint
 
 import (
+	"os"
 	"path/filepath"
 	"runtime"
+
+	"github.com/SiriusScan/ping++/pkg/fingerprint/adapters"
 )
 
-// LoadBuiltinPacks loads YAML fingerprint packs from the repo fingerprints/ tree.
-//
-// TODO: do not swallow LoadDir errors. NewEngine treats a nil return as
-// success, so bad YAML / invalid regex / unreadable dirs currently vanish.
-// Missing optional subdirectories can stay non-fatal; everything else must
-// fail closed. Replace runtime.Caller loading with go:embed.
+// LoadBuiltinPacks loads YAML fingerprint packs and Recog/Wappalyzer corpora.
+// Missing optional directories are ignored; parse errors fail closed.
 func (e *Engine) LoadBuiltinPacks(root string) error {
 	dirs := []string{
 		filepath.Join(root, "http"),
@@ -21,7 +20,23 @@ func (e *Engine) LoadBuiltinPacks(root string) error {
 		filepath.Join(root, "recog"),
 	}
 	for _, d := range dirs {
-		_ = e.LoadDir(d) // missing dirs are fine
+		if err := e.LoadDir(d); err != nil && !os.IsNotExist(err) {
+			return err
+		}
+	}
+	if rec, err := adapters.LoadRecogXML(filepath.Join(root, "recog", "ssh.xml")); err != nil {
+		if !os.IsNotExist(err) {
+			return err
+		}
+	} else {
+		e.AddAdapter(rec)
+	}
+	if w, err := adapters.LoadWappalyzerJSON(filepath.Join(root, "wappalyzer", "technologies.json")); err != nil {
+		if !os.IsNotExist(err) {
+			return err
+		}
+	} else {
+		e.AddAdapter(w)
 	}
 	return nil
 }

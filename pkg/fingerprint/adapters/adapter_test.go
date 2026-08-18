@@ -44,3 +44,45 @@ func TestNativeRecogSSH(t *testing.T) {
 		t.Fatalf("%+v", claims)
 	}
 }
+
+func TestNativeRecogXMLOpenSSH(t *testing.T) {
+	xml := []byte(`<fingerprints matches="ssh.banner">
+  <fingerprint pattern="OpenSSH">
+    <description>OpenSSH</description>
+    <param pos="0" name="service.vendor">OpenBSD</param>
+    <param pos="0" name="service.product">OpenSSH</param>
+  </fingerprint>
+</fingerprints>`)
+	r, err := adapters.ParseRecogXML(xml)
+	if err != nil {
+		t.Fatal(err)
+	}
+	claims, err := r.MatchField("ssh", "banner", "SSH-2.0-OpenSSH_9.6")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(claims) != 1 || claims[0].Product != "OpenSSH" {
+		t.Fatalf("%+v", claims)
+	}
+}
+
+func TestWappalyzerJSONNginx(t *testing.T) {
+	raw := []byte(`{"nginx":{"cats":[22],"headers":{"Server":"nginx(?:/([\\d.]+))?"}}}`)
+	w, err := adapters.ParseWappalyzerJSON(raw)
+	if err != nil {
+		t.Fatal(err)
+	}
+	claims, err := w.Detect(model.HTTPObservation{Server: "nginx/1.24"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	found := false
+	for _, c := range claims {
+		if c.Product == "nginx" {
+			found = true
+		}
+	}
+	if !found {
+		t.Fatalf("claims=%+v", claims)
+	}
+}

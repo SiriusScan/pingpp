@@ -75,9 +75,14 @@ func NewEngine(opts Options) (*Engine, error) {
 	if opts.MaxNetworkOps > 0 {
 		profile.Budget.MaxNetworkOps = opts.MaxNetworkOps
 	}
+	store := opts.Artifacts
+	if store == nil {
+		store = artifact.NewMemoryStore(profile.Budget.MaxArtifactBytes)
+	}
 	fp := opts.Fingerprints
 	if fp == nil {
 		eng := fingerprint.NewEngine()
+		eng.SetArtifactStore(store)
 		if err := eng.LoadBuiltinPacks(fingerprint.RepoFingerprintsRoot()); err != nil {
 			return nil, fmt.Errorf("load builtin fingerprints: %w", err)
 		}
@@ -87,10 +92,6 @@ func NewEngine(opts Options) (*Engine, error) {
 			}
 		}
 		fp = eng
-	}
-	store := opts.Artifacts
-	if store == nil {
-		store = artifact.NewMemoryStore(profile.Budget.MaxArtifactBytes)
 	}
 	counters := opts.Metrics
 	if counters == nil {

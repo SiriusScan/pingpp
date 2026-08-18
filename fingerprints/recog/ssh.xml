@@ -1,0 +1,14 @@
+<?xml version="1.0"?>
+<fingerprints matches="ssh.banner">
+  <fingerprint pattern="^SSH-([\d.]+)-OpenSSH[_-]([^\s]+)">
+    <description>OpenSSH</description>
+    <example>SSH-2.0-OpenSSH_9.6</example>
+    <param pos="0" name="service.vendor">OpenBSD</param>
+    <param pos="0" name="service.product">OpenSSH</param>
+  </fingerprint>
+  <fingerprint pattern="(?i)Cisco">
+    <description>Cisco IOS</description>
+    <param pos="0" name="service.vendor">Cisco</param>
+    <param pos="0" name="service.product">Cisco IOS</param>
+  </fingerprint>
+</fingerprints>

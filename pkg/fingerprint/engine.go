@@ -12,6 +12,8 @@ import (
 	"regexp"
 	"strings"
 
+	"github.com/SiriusScan/ping++/pkg/artifact"
+	"github.com/SiriusScan/ping++/pkg/fingerprint/adapters"
 	"github.com/SiriusScan/ping++/pkg/model"
 	"gopkg.in/yaml.v3"
 )
@@ -57,7 +59,9 @@ type RuleClaim struct {
 
 // Engine matches rules against observations and fuses claims.
 type Engine struct {
-	rules []compiledRule
+	rules    []compiledRule
+	store    artifact.Store
+	adapters []adapters.FingerprintAdapter
 }
 
 type compiledRule struct {
@@ -74,6 +78,21 @@ type compiledCond struct {
 // NewEngine creates an empty fingerprint engine.
 func NewEngine() *Engine {
 	return &Engine{}
+}
+
+// SetArtifactStore lets Match hydrate HTTP bodies from stored artifacts.
+func (e *Engine) SetArtifactStore(store artifact.Store) {
+	if e != nil {
+		e.store = store
+	}
+}
+
+// AddAdapter registers a Recog/Wappalyzer-compatible matcher.
+func (e *Engine) AddAdapter(a adapters.FingerprintAdapter) {
+	if e == nil || a == nil {
+		return
+	}
+	e.adapters = append(e.adapters, a)
 }
 
 // LoadYAMLFile loads rules from a YAML file (single rule or list).
@@ -163,7 +182,11 @@ func compileCond(m MatchCondition) (compiledCond, error) {
 // Match runs all rules against observations and returns fused claims.
 func (e *Engine) Match(observations []model.ObservationRecord) []model.Claim {
 	var raw []model.Claim
+	hydrated := make([]model.ObservationRecord, 0, len(observations))
 	for _, obs := range observations {
+		hydrated = append(hydrated, e.hydrate(obs))
+	}
+	for _, obs := range hydrated {
 		fields := flattenObservation(obs)
 		for _, cr := range e.rules {
 			if cr.rule.Inputs.ObservationType != "" && cr.rule.Inputs.ObservationType != obs.ObservationType {
@@ -211,7 +234,35 @@ func (e *Engine) Match(observations []model.ObservationRecord) []model.Claim {
 			}
 		}
 	}
+	for _, a := range e.adapters {
+		claims, err := a.Match(hydrated)
+		if err != nil {
+			continue
+		}
+		raw = append(raw, claims...)
+	}
 	return Compose(raw)
+}
+
+func (e *Engine) hydrate(obs model.ObservationRecord) model.ObservationRecord {
+	if e == nil || e.store == nil || obs.ObservationType != model.ObservationHTTP || len(obs.ArtifactIDs) == 0 {
+		return obs
+	}
+	var p model.HTTPObservation
+	_ = obs.DecodePayload(&p)
+	if p.Body != "" {
+		return obs
+	}
+	for _, id := range obs.ArtifactIDs {
+		data, _, err := e.store.Get(id)
+		if err != nil || len(data) == 0 {
+			continue
+		}
+		p.Body = string(data)
+		_ = obs.SetPayload(p)
+		break
+	}
+	return obs
 }
 
 func scoreFromTier(t model.ConfidenceTier) float64 {
@@ -331,4 +382,3 @@ func flatten(prefix string, v any, out map[string]string) {
 		out[prefix] = fmt.Sprint(t)
 	}
 }
-

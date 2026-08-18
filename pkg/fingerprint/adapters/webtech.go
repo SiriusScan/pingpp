@@ -25,7 +25,8 @@ type webRule struct {
 	cookies []string
 }
 
-// NewNativeWebTech returns a detector with built-in high-value web tech rules.
+// NewNativeWebTech returns a tiny fixture detector for adapter tests.
+// Production matching uses Wappalyzer-format JSON via LoadWappalyzerJSON.
 func NewNativeWebTech() *NativeWebTech {
 	return &NativeWebTech{rules: defaultWebRules()}
 }

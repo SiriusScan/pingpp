@@ -27,7 +27,6 @@ func identityOf(c model.Claim) claimIdentity {
 	return claimIdentity{
 		subject:   c.Subject,
 		kind:      c.Kind,
-		vendor:    strings.ToLower(strings.TrimSpace(c.Vendor)),
 		product:   product,
 		family:    strings.ToLower(strings.TrimSpace(c.Family)),
 		attribute: strings.ToLower(strings.TrimSpace(c.Attribute)),
@@ -103,6 +102,9 @@ func combineGroup(list []model.Claim) model.Claim {
 			p = p / 100
 		}
 		s *= (1 - p)
+		if combined.Vendor == "" && c.Vendor != "" {
+			combined.Vendor = c.Vendor
+		}
 		evidence = append(evidence, c.EvidenceIDs...)
 		rules = append(rules, c.RuleIDs...)
 		contradictions = append(contradictions, c.ContradictionIDs...)
