@@ -25,8 +25,12 @@ func (c *Collector) Metadata() engine.CollectorMetadata {
 	return engine.CollectorMetadata{ID: id, Stage: engine.StageCollect, Transports: []model.Transport{model.TransportTCP}, DefaultPorts: []uint16{1883}, Cost: 2, Priority: 45, SideEffectRisk: "low", SafeForOT: true}
 }
 func (c *Collector) Run(ctx context.Context, in engine.CollectorInput) ([]model.ObservationRecord, error) {
+	res, err := c.RunResult(ctx, in)
+	return res.Observations, err
+}
+func (c *Collector) RunResult(ctx context.Context, in engine.CollectorInput) (engine.CollectorResult, error) {
 	if in.Endpoint == nil {
-		return nil, fmt.Errorf("mqtt: endpoint required")
+		return engine.CollectorResult{}, fmt.Errorf("mqtt: endpoint required")
 	}
 	ref := in.Endpoint.Ref()
 	obs := model.ObservationRecord{ID: fmt.Sprintf("obs:mqtt:%d", time.Now().UnixNano()), ProbeID: id, ObservationType: "mqtt", Endpoint: &ref, Timestamp: time.Now().UTC(), CorrelationGroup: fmt.Sprintf("mqtt:%s:%d", in.Endpoint.Address, in.Endpoint.Port)}
@@ -37,17 +41,16 @@ func (c *Collector) Run(ctx context.Context, in engine.CollectorInput) ([]model.
 	if err != nil {
 		obs.Error = err.Error()
 		obs.Completeness = "none"
-		return []model.ObservationRecord{obs}, nil
+		return engine.CollectorResult{Outcome: engine.OutcomeFromError(err), Protocol: "mqtt", Observations: []model.ObservationRecord{obs}}, nil
 	}
 	defer func() { _ = conn.Close() }()
 	_ = conn.SetDeadline(time.Now().Add(c.timeout))
-	// MQTT CONNECT (v3.1.1) with clientID=pingpp
 	connect := []byte{
-		0x10, 0x12, // CONNECT, remaining length
-		0x00, 0x04, 'M', 'Q', 'T', 'T', // protocol name
-		0x04,       // protocol level 4
-		0x02,       // flags: clean session
-		0x00, 0x3c, // keepalive 60
+		0x10, 0x12,
+		0x00, 0x04, 'M', 'Q', 'T', 'T',
+		0x04,
+		0x02,
+		0x00, 0x3c,
 		0x00, 0x06, 'p', 'i', 'n', 'g', 'p', 'p',
 	}
 	_, _ = conn.Write(connect)
@@ -58,14 +61,17 @@ func (c *Collector) Run(ctx context.Context, in engine.CollectorInput) ([]model.
 		payload.Connack = true
 		payload.ReturnCode = int(buf[3])
 		obs.Completeness = "full"
+		_ = obs.SetPayload(payload)
+		return engine.CollectorResult{Outcome: engine.OutcomeSuccess, Protocol: "mqtt", Observations: []model.ObservationRecord{obs}}, nil
+	}
+	obs.Completeness = "none"
+	if err != nil {
+		obs.Error = err.Error()
 	} else {
-		obs.Completeness = "none"
-		if err != nil {
-			obs.Error = err.Error()
-		}
+		obs.Error = "not mqtt connack"
 	}
 	_ = obs.SetPayload(payload)
-	return []model.ObservationRecord{obs}, nil
+	return engine.CollectorResult{Outcome: engine.OutcomeNoMatch, Protocol: "mqtt", Observations: []model.ObservationRecord{obs}}, nil
 }
 func Register(r *engine.Registry) {
 	r.MustRegister(id, func(cfg engine.Config) (engine.Collector, error) { return New(cfg) })

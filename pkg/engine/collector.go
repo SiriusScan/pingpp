@@ -103,6 +103,7 @@ type ScanState struct {
 	Completed    map[string]bool            // collector IDs already run for current subject
 	Matched      map[string]map[string]bool // endpoint key -> protocol -> matched
 	RuledOut     map[string]map[string]bool
+	Requests     map[string]int // endpoint key -> collector runs
 	Meter        *transport.Meter
 	mu           sync.Mutex
 }
@@ -189,6 +190,29 @@ func (s *ScanState) HasExclusiveProtocol(endpointKey string) bool {
 		}
 	}
 	return false
+}
+
+// NoteEndpointRequest counts a collector run against MaxRequestsPerEndpoint.
+func (s *ScanState) NoteEndpointRequest(endpointKey string) {
+	if s == nil || endpointKey == "" {
+		return
+	}
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	if s.Requests == nil {
+		s.Requests = make(map[string]int)
+	}
+	s.Requests[endpointKey]++
+}
+
+// EndpointRequests returns collector runs already issued for an endpoint.
+func (s *ScanState) EndpointRequests(endpointKey string) int {
+	if s == nil {
+		return 0
+	}
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	return s.Requests[endpointKey]
 }
 
 func exclusiveProtocol(protocol string) bool {

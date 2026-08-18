@@ -1,4 +1,6 @@
 observation_type: snmp
+rule_ids:
+  - snmp-cisco-sysdescr
 payload:
   sys_descr: Linux net-snmp
 reject:

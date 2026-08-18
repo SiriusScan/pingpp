@@ -9,7 +9,16 @@ import (
 
 func TestScanOptionsWrapsEngineOptions(t *testing.T) {
 	opts := scan.ScanOptions{
-		Options: engine.Options{Profile: engine.ProfileQuick, SkipDiscovery: true},
+		Options: engine.Options{Profile: engine.ProfileQuick, SkipICMP: true, ProbeTypes: []string{"icmp", "tcp"}},
+	}
+	if opts.SkipDiscovery {
+		t.Fatal("SkipICMP must not imply SkipDiscovery")
+	}
+	if !opts.SkipICMP {
+		t.Fatal("SkipICMP should be set")
+	}
+	if len(opts.ProbeTypes) != 2 {
+		t.Fatalf("ProbeTypes=%v", opts.ProbeTypes)
 	}
 	if opts.Profile != engine.ProfileQuick {
 		t.Fatalf("profile=%q", opts.Profile)

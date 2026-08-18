@@ -11,6 +11,7 @@ func TestRuntimeCounters(t *testing.T) {
 	c := &metrics.Counters{}
 	c.RecordCollector("success")
 	c.RecordCollector("timeout")
+	c.RecordProtocolMatch()
 	c.RecordBytes(1024)
 	c.RecordUnknownEndpoint()
 	c.RecordClaimTier("strong")

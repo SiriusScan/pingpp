@@ -11,6 +11,19 @@ import (
 	"github.com/SiriusScan/ping++/pkg/protocol/pop3"
 )
 
+func TestPOP3AdvertisesPOP3S(t *testing.T) {
+	c, _ := pop3.New(engine.Config{})
+	found := false
+	for _, p := range c.Metadata().DefaultPorts {
+		if p == 995 {
+			found = true
+		}
+	}
+	if !found {
+		t.Fatalf("expected 995, got %v", c.Metadata().DefaultPorts)
+	}
+}
+
 func TestPOP3AcceptsOK(t *testing.T) {
 	ln := serve(t, "+OK POP3 server ready\r\n")
 	defer func() { _ = ln.Close() }()

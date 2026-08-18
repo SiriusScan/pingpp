@@ -40,7 +40,7 @@ func TestNativeRecogSSH(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if len(claims) != 1 || claims[0].Product != "OpenSSH" {
+	if len(claims) != 1 || claims[0].Product != "OpenSSH" || claims[0].Version != "9.6" {
 		t.Fatalf("%+v", claims)
 	}
 }
@@ -105,6 +105,86 @@ func TestRecogParamValueAttribute(t *testing.T) {
 	}
 	if len(claims) != 1 || claims[0].Product != "OpenSSH" || claims[0].Vendor != "OpenBSD" {
 		t.Fatalf("%+v", claims)
+	}
+}
+
+func TestRecogSeparatesServiceAndOSWithCaptures(t *testing.T) {
+	xml := []byte(`<fingerprints matches="ssh.banner">
+  <fingerprint pattern="^OpenSSH_([\d.]+) green@FreeBSD.org">
+    <description>OpenSSH on FreeBSD 4.3</description>
+    <param pos="1" name="service.version"/>
+    <param pos="0" name="service.vendor" value="OpenBSD"/>
+    <param pos="0" name="service.product" value="OpenSSH"/>
+    <param pos="0" name="service.cpe23" value="cpe:/a:openbsd:openssh:{service.version}"/>
+    <param pos="0" name="os.vendor" value="FreeBSD"/>
+    <param pos="0" name="os.product" value="FreeBSD"/>
+    <param pos="0" name="os.family" value="FreeBSD"/>
+    <param pos="0" name="os.version" value="4.3"/>
+    <param pos="0" name="hw.vendor" value="Dell"/>
+    <param pos="0" name="hw.device" value="Server"/>
+  </fingerprint>
+</fingerprints>`)
+	r, err := adapters.ParseRecogXML(xml)
+	if err != nil {
+		t.Fatal(err)
+	}
+	claims, err := r.MatchField("ssh", "banner", "OpenSSH_2.3.0 green@FreeBSD.org")
+	if err != nil {
+		t.Fatal(err)
+	}
+	var product, os, hw *model.Claim
+	for i := range claims {
+		c := &claims[i]
+		switch c.Kind {
+		case model.ClaimProduct:
+			product = c
+		case model.ClaimOS:
+			os = c
+		case model.ClaimDevice:
+			hw = c
+		}
+	}
+	if product == nil || product.Product != "OpenSSH" || product.Version != "2.3.0" || product.Vendor != "OpenBSD" {
+		t.Fatalf("product=%+v", product)
+	}
+	if product.CPE != "cpe:/a:openbsd:openssh:2.3.0" {
+		t.Fatalf("cpe=%q", product.CPE)
+	}
+	if os == nil || os.Product != "FreeBSD" || os.Version != "4.3" || os.Vendor != "FreeBSD" {
+		t.Fatalf("os=%+v", os)
+	}
+	if hw == nil || hw.Vendor != "Dell" || hw.DeviceType != "Server" {
+		t.Fatalf("hw=%+v", hw)
+	}
+}
+
+func TestRecogClaimsKeepEndpointSubject(t *testing.T) {
+	xml := []byte(`<fingerprints matches="ssh.banner">
+  <fingerprint pattern="OpenSSH">
+    <param pos="0" name="service.product" value="OpenSSH"/>
+  </fingerprint>
+</fingerprints>`)
+	r, err := adapters.ParseRecogXML(xml)
+	if err != nil {
+		t.Fatal(err)
+	}
+	obs22 := model.ObservationRecord{ID: "s22", ObservationType: model.ObservationSSH, Endpoint: &model.EndpointRef{Address: "10.0.0.1", Port: 22, Transport: model.TransportTCP}}
+	_ = obs22.SetPayload(model.SSHObservation{Banner: "SSH-2.0-OpenSSH_9.6"})
+	obs2222 := model.ObservationRecord{ID: "s2222", ObservationType: model.ObservationSSH, Endpoint: &model.EndpointRef{Address: "10.0.0.1", Port: 2222, Transport: model.TransportTCP}}
+	_ = obs2222.SetPayload(model.SSHObservation{Banner: "SSH-2.0-OpenSSH_9.6"})
+	claims, err := r.Match([]model.ObservationRecord{obs22, obs2222})
+	if err != nil {
+		t.Fatal(err)
+	}
+	seen := map[string]int{}
+	for _, c := range claims {
+		if c.Subject == "" {
+			t.Fatalf("empty subject: %+v", c)
+		}
+		seen[c.Subject]++
+	}
+	if seen["10.0.0.1/tcp/22"] == 0 || seen["10.0.0.1/tcp/2222"] == 0 {
+		t.Fatalf("subjects=%v", seen)
 	}
 }
 

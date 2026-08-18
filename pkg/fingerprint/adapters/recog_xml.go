@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"os"
 	"regexp"
+	"strconv"
 	"strings"
 )
 
@@ -68,42 +69,35 @@ func ParseRecogXML(data []byte) (*NativeRecog, error) {
 			continue
 		}
 		rule := RecogRule{
-			ID:       fmt.Sprintf("recog-xml-%s-%d", protocol, i),
-			Protocol: protocol,
-			Field:    field,
-			Pattern:  pat,
+			ID:        fmt.Sprintf("recog-xml-%s-%d", protocol, i),
+			Protocol:  protocol,
+			Field:     field,
+			Pattern:   pat,
+			Certainty: "strong",
 		}
 		for _, p := range fp.Params {
-			switch p.Name {
-			case "service.product", "os.product":
-				if v := p.val(); v != "" {
-					rule.Product = v
-				}
-			case "service.vendor", "os.vendor", "hw.vendor":
-				if v := p.val(); v != "" && rule.Vendor == "" {
-					rule.Vendor = v
-				}
-			case "os.family":
-				if v := p.val(); v != "" {
-					rule.OSFamily = v
-				}
-			case "service.version", "os.version":
-				// version is captured at match time from groups; static values only when pos=0
-				if p.Pos == "0" {
-					if v := p.val(); v != "" {
-						rule.Version = v
-					}
-				}
+			if p.Name == "" {
+				continue
 			}
+			pos, _ := strconv.Atoi(p.Pos)
+			rule.Params = append(rule.Params, RecogParam{Name: p.Name, Pos: pos, Value: p.val()})
 		}
-		if rule.Product == "" && fp.Description != "" {
-			rule.Product = fp.Description
+		if fp.Description != "" && !hasRecogParam(rule.Params, "service.product") && !hasRecogParam(rule.Params, "os.product") {
+			rule.Params = append(rule.Params, RecogParam{Name: "service.product", Value: fp.Description})
 		}
-		rule.Certainty = "strong"
 		rules = append(rules, rule)
 	}
 	_ = skipped
 	return NewNativeRecogFromRules(rules)
+}
+
+func hasRecogParam(params []RecogParam, name string) bool {
+	for _, p := range params {
+		if p.Name == name {
+			return true
+		}
+	}
+	return false
 }
 
 func mapRecogMatches(matches, protocolAttr string) (protocol, field string) {

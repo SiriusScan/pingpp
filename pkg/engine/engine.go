@@ -38,6 +38,11 @@ type Engine struct {
 type Options struct {
 	Profile       ProfileName
 	SkipDiscovery bool
+	// SkipICMP removes ICMP discovery only. TCP discovery still runs.
+	SkipICMP bool
+	// ProbeTypes filters discovery/enumeration/protocol collectors when set
+	// (icmp, tcp, udp, ssh, http, smb, ...). Empty means the full Engine set.
+	ProbeTypes    []string
 	TCPPorts      []uint16
 	UDPPorts      []uint16
 	RatePerSecond int
@@ -60,9 +65,7 @@ func NewEngine(opts Options) (*Engine, error) {
 		return nil, fmt.Errorf("registry required")
 	}
 	profile := ProfileFor(opts.Profile)
-	if opts.SkipDiscovery {
-		profile.SkipDiscovery = true
-	}
+	profile = applyEngineOptions(profile, opts)
 	if len(opts.TCPPorts) > 0 {
 		profile.TCPPorts = append([]uint16(nil), opts.TCPPorts...)
 	}
@@ -109,6 +112,74 @@ func NewEngine(opts Options) (*Engine, error) {
 	}, nil
 }
 
+func applyEngineOptions(profile Profile, opts Options) Profile {
+	if opts.SkipDiscovery {
+		profile.SkipDiscovery = true
+	}
+	if opts.SkipICMP {
+		profile.DiscoveryCollectors = filterCollectorIDs(profile.DiscoveryCollectors, "discovery.icmp")
+	}
+	if len(opts.ProbeTypes) == 0 {
+		return profile
+	}
+	has := map[string]bool{}
+	for _, t := range opts.ProbeTypes {
+		has[strings.ToLower(strings.TrimSpace(t))] = true
+	}
+	var allow []string
+	var disc []string
+	if has["icmp"] && !opts.SkipICMP && !opts.SkipDiscovery {
+		disc = append(disc, "discovery.icmp")
+		allow = append(allow, "discovery.icmp")
+	}
+	if has["tcp"] {
+		if !opts.SkipDiscovery {
+			disc = append(disc, "discovery.tcp")
+			allow = append(allow, "discovery.tcp")
+		}
+		allow = append(allow, "enumerate.tcp")
+	}
+	if has["udp"] {
+		allow = append(allow, "enumerate.udp")
+	}
+	protoCollectors := map[string][]string{
+		"ssh":  {"collect.ssh", "collect.banner"},
+		"http": {"collect.http", "collect.tls", "collect.http.enrich", "collect.banner"},
+		"smb":  {"collect.smb", "collect.banner"},
+		"ftp":  {"collect.ftp", "collect.banner"},
+		"smtp": {"collect.smtp", "collect.tls", "collect.banner"},
+		"imap": {"collect.imap", "collect.tls", "collect.banner"},
+		"pop3": {"collect.pop3", "collect.tls", "collect.banner"},
+		"tls":  {"collect.tls"},
+	}
+	for kind, ids := range protoCollectors {
+		if !has[kind] {
+			continue
+		}
+		allow = append(allow, ids...)
+	}
+	profile.DiscoveryCollectors = uniqueIDs(disc)
+	var coll []string
+	for _, id := range allow {
+		if strings.HasPrefix(id, "enumerate.") {
+			coll = append(coll, id)
+		}
+	}
+	profile.CollectCollectors = uniqueIDs(coll)
+	profile.AllowCollectors = uniqueIDs(allow)
+	return profile
+}
+
+func filterCollectorIDs(ids []string, drop string) []string {
+	out := make([]string, 0, len(ids))
+	for _, id := range ids {
+		if id != drop {
+			out = append(out, id)
+		}
+	}
+	return out
+}
+
 // ScanResult is the output of scanning one target.
 type ScanResult struct {
 	Asset *model.Asset
@@ -130,44 +201,56 @@ func (e *Engine) ScanResolved(ctx context.Context, target model.Target) (*ScanRe
 		return nil, fmt.Errorf("no addresses for %q", target.Input)
 	}
 	if len(target.Addresses) == 1 {
-		return e.scanAddress(ctx, target, target.Addresses[0])
+		return e.scanAddress(ctx, target, target.Addresses[0], nil)
 	}
 	merged := &model.Asset{ID: "asset:" + target.Input}
 	if target.Hostname != "" {
 		merged.Hostnames = []string{target.Hostname}
 	}
-	var mergedState *ScanState
+	shared := e.newScanState("asset:" + target.Input)
 	for _, addr := range target.Addresses {
 		one := target
 		one.Addresses = []model.Address{addr}
-		res, err := e.scanAddress(ctx, one, addr)
+		res, err := e.scanAddress(ctx, one, addr, shared)
 		if err != nil {
 			return nil, err
 		}
 		mergeAsset(merged, res.Asset)
-		if mergedState == nil {
-			mergedState = res.State
-		} else {
-			mergeScanState(mergedState, res.State)
-		}
 	}
 	e.applyFingerprints(merged)
-	return &ScanResult{Asset: merged, State: mergedState}, nil
+	e.recordScanMetrics(merged, shared)
+	e.mu.Lock()
+	e.syncMeterLocked(shared)
+	e.mu.Unlock()
+	return &ScanResult{Asset: merged, State: shared}, nil
 }
 
-func (e *Engine) scanAddress(ctx context.Context, target model.Target, addr model.Address) (*ScanResult, error) {
+func (e *Engine) newScanState(assetID string) *ScanState {
+	return &ScanState{
+		AssetID:      assetID,
+		Reachability: model.Reachability{State: model.ReachabilityUnknown},
+		Budget:       e.profile.Budget,
+		Completed:    make(map[string]bool),
+		Matched:      make(map[string]map[string]bool),
+		RuledOut:     make(map[string]map[string]bool),
+		Requests:     make(map[string]int),
+		Meter: &transport.Meter{
+			MaxNetworkOps: e.profile.Budget.MaxNetworkOps,
+			MaxBytes:      e.profile.Budget.MaxBytesPerHost,
+		},
+	}
+}
+
+func (e *Engine) scanAddress(ctx context.Context, target model.Target, addr model.Address, shared *ScanState) (*ScanResult, error) {
 	asset := model.NewAssetFromIP(addr.IP)
 	if target.Hostname != "" {
 		asset.Hostnames = []string{target.Hostname}
 	}
-	state := &ScanState{
-		AssetID:      asset.ID,
-		Reachability: model.Reachability{State: model.ReachabilityUnknown},
-		Budget:       e.profile.Budget,
-		Completed:    make(map[string]bool),
-		Meter: &transport.Meter{
-			MaxNetworkOps: e.profile.Budget.MaxNetworkOps,
-		},
+	state := shared
+	if state == nil {
+		state = e.newScanState(asset.ID)
+	} else {
+		state.AssetID = asset.ID
 	}
 
 	if err := e.runTasks(ctx, e.planner.PlanDiscovery(asset, &target, state), asset, &target, state); err != nil {
@@ -193,10 +276,12 @@ func (e *Engine) scanAddress(ctx context.Context, target model.Target, addr mode
 	}
 
 	e.applyFingerprints(asset)
-	e.recordScanMetrics(asset, state)
-	e.mu.Lock()
-	e.syncMeterLocked(state)
-	e.mu.Unlock()
+	if shared == nil {
+		e.recordScanMetrics(asset, state)
+		e.mu.Lock()
+		e.syncMeterLocked(state)
+		e.mu.Unlock()
+	}
 	return &ScanResult{Asset: asset, State: state}, nil
 }
 
@@ -242,23 +327,47 @@ func mergeAsset(dst, src *model.Asset) {
 }
 
 func mergeScanState(dst, src *ScanState) {
-	if dst == nil || src == nil {
+	if dst == nil || src == nil || dst == src {
 		return
 	}
 	dst.Budget.ProbesUsed += src.Budget.ProbesUsed
-	dst.Budget.NetworkOps += src.Budget.NetworkOps
-	dst.Budget.BytesUsed += src.Budget.BytesUsed
 	if src.Reachability.State == model.ReachabilityConfirmed {
 		dst.Reachability.State = model.ReachabilityConfirmed
 	} else if dst.Reachability.State == model.ReachabilityUnknown {
 		dst.Reachability.State = src.Reachability.State
 	}
+	for _, r := range src.Reachability.Reasons {
+		dst.Reachability.Reasons = appendUniqueReason(dst.Reachability.Reasons, r)
+	}
+	if dst.Completed == nil {
+		dst.Completed = map[string]bool{}
+	}
 	for k, v := range src.Completed {
-		if dst.Completed == nil {
-			dst.Completed = map[string]bool{}
-		}
 		dst.Completed[k] = v
 	}
+	dst.Matched = mergeNestedBool(dst.Matched, src.Matched)
+	dst.RuledOut = mergeNestedBool(dst.RuledOut, src.RuledOut)
+	if dst.Requests == nil {
+		dst.Requests = map[string]int{}
+	}
+	for k, v := range src.Requests {
+		dst.Requests[k] += v
+	}
+}
+
+func mergeNestedBool(dst, src map[string]map[string]bool) map[string]map[string]bool {
+	if dst == nil {
+		dst = map[string]map[string]bool{}
+	}
+	for k, inner := range src {
+		if dst[k] == nil {
+			dst[k] = map[string]bool{}
+		}
+		for p, v := range inner {
+			dst[k][p] = v
+		}
+	}
+	return dst
 }
 
 func (e *Engine) runTasks(ctx context.Context, tasks []Task, asset *model.Asset, target *model.Target, state *ScanState) error {
@@ -299,10 +408,10 @@ func (e *Engine) syncMeterLocked(state *ScanState) {
 	if state == nil || state.Meter == nil {
 		return
 	}
-	ops, conns, read, _ := state.Meter.Snapshot()
+	ops, conns, read, sent := state.Meter.Snapshot()
 	state.Budget.NetworkOps = ops
 	state.Budget.Connections = conns
-	state.Budget.BytesUsed = read
+	state.Budget.BytesUsed = read + sent
 }
 
 func (e *Engine) runTask(ctx context.Context, task Task, asset *model.Asset, state *ScanState) error {
@@ -342,6 +451,9 @@ func (e *Engine) runTask(ctx context.Context, task Task, asset *model.Asset, sta
 	} else if result.NetworkOps > 0 || result.BytesRead > 0 {
 		state.Budget.ConsumeNetwork(result.NetworkOps, result.BytesRead)
 	}
+	if task.Endpoint != nil {
+		state.NoteEndpointRequest(task.Endpoint.Key())
+	}
 	key := task.CollectorID
 	if task.Endpoint != nil {
 		key = task.CollectorID + ":" + task.Endpoint.Key()
@@ -349,20 +461,20 @@ func (e *Engine) runTask(ctx context.Context, task Task, asset *model.Asset, sta
 		key = hostCollectorKey(task.CollectorID, task.Target)
 	}
 	state.MarkComplete(key)
+	if err != nil && result.Outcome == "" {
+		result.Outcome = outcomeFromError(err)
+	}
 	if e.metrics != nil {
 		e.metrics.RecordCollector(string(result.Outcome))
 	}
 
 	if err != nil {
-		if result.Outcome == "" {
-			result.Outcome = outcomeFromError(err)
-		}
 		if ctx.Err() != nil {
 			return err
 		}
 	}
 	applyCollectorOutcome(state, task, result)
-	applyProtocolClaim(asset, task, result)
+	e.applyProtocolClaim(asset, task, result)
 	for _, o := range result.Observations {
 		if o.AssetID == "" {
 			o.AssetID = asset.ID
@@ -373,17 +485,21 @@ func (e *Engine) runTask(ctx context.Context, task Task, asset *model.Asset, sta
 	return nil
 }
 
-func executeCollector(ctx context.Context, c Collector, in CollectorInput) (CollectorResult, error) {
+func executeCollector(ctx context.Context, c Collector, in CollectorInput) (result CollectorResult, err error) {
+	defer func() {
+		if rec := recover(); rec != nil {
+			result = CollectorResult{Outcome: OutcomeInternalError, Observations: result.Observations}
+			err = nil
+		}
+	}()
 	if rc, ok := c.(ResultCollector); ok {
 		return rc.RunResult(ctx, in)
 	}
-	obs, err := c.Run(ctx, in)
-	// Legacy collectors: record observations, but do not treat Completeness
-	// as a protocol match. Planning identity comes only from ProbeOutcome.
+	obs, runErr := c.Run(ctx, in)
 	out := CollectorResult{Observations: obs}
-	if err != nil {
-		out.Outcome = outcomeFromError(err)
-		return out, err
+	if runErr != nil {
+		out.Outcome = outcomeFromError(runErr)
+		return out, runErr
 	}
 	return out, nil
 }
@@ -408,7 +524,7 @@ func resultProtocol(task Task, result CollectorResult) string {
 	return collectorProtocol(task.CollectorID)
 }
 
-func applyProtocolClaim(asset *model.Asset, task Task, result CollectorResult) {
+func (e *Engine) applyProtocolClaim(asset *model.Asset, task Task, result CollectorResult) {
 	if asset == nil || task.Endpoint == nil || result.Outcome != OutcomeSuccess {
 		return
 	}
@@ -433,6 +549,9 @@ func applyProtocolClaim(asset *model.Asset, task Task, result CollectorResult) {
 		EvidenceIDs:      evidence,
 		CorrelationGroup: "protocol:" + task.Endpoint.Key(),
 	})
+	if e != nil && e.metrics != nil {
+		e.metrics.RecordProtocolMatch()
+	}
 }
 
 func OutcomeFromError(err error) ProbeOutcome {
@@ -473,13 +592,6 @@ func (e *Engine) applyFingerprints(asset *model.Asset) {
 	for _, c := range e.fingerprints.Match(asset.Observations) {
 		asset.AddClaim(c)
 	}
-	if e.metrics != nil {
-		for _, c := range asset.Claims {
-			if len(c.ContradictionIDs) > 0 {
-				e.metrics.RecordConflict()
-			}
-		}
-	}
 }
 
 func (e *Engine) recordScanMetrics(asset *model.Asset, state *ScanState) {
@@ -492,8 +604,8 @@ func (e *Engine) recordScanMetrics(asset *model.Asset, state *ScanState) {
 		}
 	}
 	if state != nil && state.Meter != nil {
-		_, _, read, _ := state.Meter.Snapshot()
-		e.metrics.RecordBytes(read)
+		_, _, read, sent := state.Meter.Snapshot()
+		e.metrics.RecordBytes(read + sent)
 	}
 	seenConflict := map[string]bool{}
 	for _, c := range asset.Claims {

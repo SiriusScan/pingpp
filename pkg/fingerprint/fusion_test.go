@@ -4,6 +4,7 @@ import (
 	"strings"
 	"testing"
 
+	"github.com/SiriusScan/ping++/pkg/fingerprint/adapters"
 	"github.com/SiriusScan/ping++/pkg/model"
 )
 
@@ -116,5 +117,38 @@ func TestComposeKeepsContradictoryOSVisible(t *testing.T) {
 	}
 	if linux.Score > 55 {
 		t.Fatalf("contradicted Linux should be downgraded: %+v", linux)
+	}
+}
+
+func TestRecogClaimsFromDistinctPortsDoNotFuse(t *testing.T) {
+	xml := []byte(`<fingerprints matches="ssh.banner">
+  <fingerprint pattern="OpenSSH">
+    <param pos="0" name="service.product" value="OpenSSH"/>
+  </fingerprint>
+</fingerprints>`)
+	r, err := adapters.ParseRecogXML(xml)
+	if err != nil {
+		t.Fatal(err)
+	}
+	obs22 := model.ObservationRecord{ID: "s22", ObservationType: model.ObservationSSH, Endpoint: &model.EndpointRef{Address: "10.0.0.1", Port: 22, Transport: model.TransportTCP}}
+	_ = obs22.SetPayload(model.SSHObservation{Banner: "SSH-2.0-OpenSSH_9.6"})
+	obs2222 := model.ObservationRecord{ID: "s2222", ObservationType: model.ObservationSSH, Endpoint: &model.EndpointRef{Address: "10.0.0.1", Port: 2222, Transport: model.TransportTCP}}
+	_ = obs2222.SetPayload(model.SSHObservation{Banner: "SSH-2.0-OpenSSH_9.6"})
+	claims, err := r.Match([]model.ObservationRecord{obs22, obs2222})
+	if err != nil {
+		t.Fatal(err)
+	}
+	fused := Compose(claims)
+	seen := map[string]bool{}
+	for _, c := range fused {
+		if c.Product == "OpenSSH" {
+			if c.Subject == "" {
+				t.Fatalf("fused claim missing subject: %+v", c)
+			}
+			seen[c.Subject] = true
+		}
+	}
+	if !seen["10.0.0.1/tcp/22"] || !seen["10.0.0.1/tcp/2222"] {
+		t.Fatalf("OpenSSH claims fused across endpoints: %+v", fused)
 	}
 }

@@ -1,4 +1,4 @@
-package imap_test
+package socks_test
 
 import (
 	"context"
@@ -8,36 +8,17 @@ import (
 
 	"github.com/SiriusScan/ping++/pkg/engine"
 	"github.com/SiriusScan/ping++/pkg/model"
-	"github.com/SiriusScan/ping++/pkg/protocol/imap"
+	"github.com/SiriusScan/ping++/pkg/protocol/socks"
 )
 
-func TestIMAPAdvertisesIMAPS(t *testing.T) {
-	c, _ := imap.New(engine.Config{})
-	found := false
-	for _, p := range c.Metadata().DefaultPorts {
-		if p == 993 {
-			found = true
-		}
-	}
-	if !found {
-		t.Fatalf("expected 993, got %v", c.Metadata().DefaultPorts)
-	}
-}
-
-func TestIMAPAcceptsGreeting(t *testing.T) {
-	ln := serve(t, "* OK IMAP4rev1 Service Ready\r\n")
+func TestSOCKSAcceptsMethodResponse(t *testing.T) {
+	ln := serve(t, []byte{0x05, 0x00})
 	defer func() { _ = ln.Close() }()
 	assertOutcome(t, ln, engine.OutcomeSuccess)
 }
 
-func TestIMAPRejectsRandomBanner(t *testing.T) {
-	ln := serve(t, "220 ftp.example.com FTP server ready\r\n")
-	defer func() { _ = ln.Close() }()
-	assertOutcome(t, ln, engine.OutcomeNoMatch)
-}
-
-func TestIMAPRejectsHTTPLookalike(t *testing.T) {
-	ln := serve(t, "HTTP/1.1 200 OK\r\n")
+func TestSOCKSRejectsHTTPLookalike(t *testing.T) {
+	ln := serve(t, []byte("HTTP/1.1 200 OK\r\n"))
 	defer func() { _ = ln.Close() }()
 	assertOutcome(t, ln, engine.OutcomeNoMatch)
 }
@@ -45,7 +26,7 @@ func TestIMAPRejectsHTTPLookalike(t *testing.T) {
 func assertOutcome(t *testing.T, ln net.Listener, want engine.ProbeOutcome) {
 	t.Helper()
 	port := uint16(ln.Addr().(*net.TCPAddr).Port)
-	c, _ := imap.New(engine.Config{Timeout: time.Second})
+	c, _ := socks.New(engine.Config{Timeout: time.Second})
 	ep := model.NewEndpoint("127.0.0.1", port, model.TransportTCP, model.EndpointOpen)
 	res, err := c.RunResult(context.Background(), engine.CollectorInput{Endpoint: &ep})
 	if err != nil {
@@ -56,7 +37,7 @@ func assertOutcome(t *testing.T, ln net.Listener, want engine.ProbeOutcome) {
 	}
 }
 
-func serve(t *testing.T, banner string) net.Listener {
+func serve(t *testing.T, reply []byte) net.Listener {
 	t.Helper()
 	ln, err := net.Listen("tcp", "127.0.0.1:0")
 	if err != nil {
@@ -68,7 +49,9 @@ func serve(t *testing.T, banner string) net.Listener {
 			return
 		}
 		defer func() { _ = c.Close() }()
-		_, _ = c.Write([]byte(banner))
+		buf := make([]byte, 8)
+		_, _ = c.Read(buf)
+		_, _ = c.Write(reply)
 	}()
 	return ln
 }

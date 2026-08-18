@@ -34,6 +34,9 @@ type Profile struct {
 	CollectCollectors   []string
 	Budget              Budget
 	SkipDiscovery       bool
+	// AllowCollectors, when non-empty, is the only set of collector IDs the
+	// planner may schedule. Empty means the full registry (default Engine path).
+	AllowCollectors []string
 }
 
 // Budget limits scan effort.
@@ -140,9 +143,17 @@ func (b *Budget) RemainingNetworkOps() bool {
 	return b.NetworkOps < b.MaxNetworkOps
 }
 
-// Remaining reports whether collector or network budget remains.
+// Remaining reports whether collector, network-operation, or byte budget remains.
 func (b *Budget) Remaining() bool {
-	return b.RemainingProbes() && b.RemainingNetworkOps()
+	return b.RemainingProbes() && b.RemainingNetworkOps() && b.RemainingBytes()
+}
+
+// RemainingBytes reports whether MaxBytesPerHost still allows more I/O.
+func (b *Budget) RemainingBytes() bool {
+	if b.MaxBytesPerHost <= 0 {
+		return true
+	}
+	return b.BytesUsed < b.MaxBytesPerHost
 }
 
 // ConsumeProbe increments the collector-run counter.

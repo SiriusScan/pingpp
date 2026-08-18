@@ -57,7 +57,8 @@ func (p *PingPlusPlusStrategy) fingerprintEngine(target string) (FingerprintResu
 	res, err := scan.Scan(ctx, target, scan.ScanOptions{
 		Options: engine.Options{
 			Profile:       engine.ProfileQuick,
-			SkipDiscovery: p.DisableICMP,
+			SkipICMP:      p.DisableICMP,
+			ProbeTypes:    p.ProbeTypes,
 			RatePerSecond: 200,
 		},
 		Timeout: p.Timeout * 5,

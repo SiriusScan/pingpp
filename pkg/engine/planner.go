@@ -42,7 +42,7 @@ func (p *Planner) PlanDiscovery(asset *model.Asset, target *model.Target, state 
 		if state != nil && state.IsComplete(hostCollectorKey(id, target)) {
 			continue
 		}
-		if !p.registry.Has(id) {
+		if !p.registry.Has(id) || !p.collectorAllowed(id) {
 			continue
 		}
 		md, _ := p.meta(id)
@@ -67,7 +67,7 @@ func (p *Planner) PlanEnumeration(asset *model.Asset, target *model.Target, stat
 		if state != nil && state.IsComplete(hostCollectorKey(id, target)) {
 			continue
 		}
-		if !p.registry.Has(id) {
+		if !p.registry.Has(id) || !p.collectorAllowed(id) {
 			continue
 		}
 		md, _ := p.meta(id)
@@ -99,7 +99,7 @@ func (p *Planner) PlanClassification(asset *model.Asset, state *ScanState) []Tas
 			if state != nil && state.IsComplete(key) {
 				continue
 			}
-			if !p.registry.Has(id) {
+			if !p.registry.Has(id) || !p.collectorAllowed(id) {
 				continue
 			}
 			md, _ := p.meta(id)
@@ -142,9 +142,11 @@ func (p *Planner) nextForEndpoint(asset *model.Asset, ep *model.Endpoint, state 
 		return p.maybeEnrich(asset, ep, state)
 	}
 	if state != nil && state.HasProtocol(key, "tls") {
-		if task, ok := p.taskIfAvailable(asset, ep, state, "collect.http", StageCollect); ok {
-			task.Extra = map[string]string{"tls": "1"}
-			return task, true
+		for _, id := range p.tlsApplicationCollectors(ep) {
+			if task, ok := p.taskIfAvailable(asset, ep, state, id, StageCollect); ok {
+				task.Extra = map[string]string{"tls": "1"}
+				return task, true
+			}
 		}
 	}
 	for _, id := range p.classificationSequence(ep) {
@@ -156,6 +158,22 @@ func (p *Planner) nextForEndpoint(asset *model.Asset, ep *model.Endpoint, state 
 		}
 	}
 	return p.maybeEnrich(asset, ep, state)
+}
+
+func (p *Planner) tlsApplicationCollectors(ep *model.Endpoint) []string {
+	var ids []string
+	seen := map[string]bool{}
+	for _, id := range p.likelyCollectorsForPort(ep.Port, ep.Transport) {
+		if id == "collect.tls" || id == "collect.banner" {
+			continue
+		}
+		ids = append(ids, id)
+		seen[id] = true
+	}
+	if !seen["collect.http"] && p.registry.Has("collect.http") {
+		ids = append(ids, "collect.http")
+	}
+	return ids
 }
 
 func classifiableEndpoint(ep *model.Endpoint) bool {
@@ -181,7 +199,20 @@ func (p *Planner) classificationSequence(ep *model.Endpoint) []string {
 	if ep == nil {
 		return p.filterRegistered(unknownSequence(model.TransportTCP))
 	}
-	return uniqueIDs(p.likelyCollectorsForPort(ep.Port, ep.Transport), p.filterRegistered(unknownSequence(ep.Transport)))
+	seq := uniqueIDs(p.likelyCollectorsForPort(ep.Port, ep.Transport), p.filterRegistered(unknownSequence(ep.Transport)))
+	if implicitTLSPort(ep.Port) && p.registry.Has("collect.tls") && p.collectorAllowed("collect.tls") {
+		seq = uniqueIDs([]string{"collect.tls"}, seq)
+	}
+	return seq
+}
+
+func implicitTLSPort(port uint16) bool {
+	switch port {
+	case 443, 465, 636, 993, 995, 8443:
+		return true
+	default:
+		return false
+	}
 }
 
 func uniqueIDs(parts ...[]string) []string {
@@ -217,7 +248,10 @@ func (p *Planner) taskIfAvailable(asset *model.Asset, ep *model.Endpoint, state 
 	if state != nil && state.IsRuledOut(ep.Key(), collectorProtocol(id)) {
 		return Task{}, false
 	}
-	if !p.registry.Has(id) {
+	if state != nil && p.profile.Budget.MaxRequestsPerEndpoint > 0 && state.EndpointRequests(ep.Key()) >= p.profile.Budget.MaxRequestsPerEndpoint {
+		return Task{}, false
+	}
+	if !p.registry.Has(id) || !p.collectorAllowed(id) {
 		return Task{}, false
 	}
 	md, _ := p.meta(id)
@@ -235,6 +269,18 @@ func hostCollectorKey(id string, target *model.Target) string {
 		return id + ":" + target.Addresses[0].IP
 	}
 	return id
+}
+
+func (p *Planner) collectorAllowed(id string) bool {
+	if p == nil || len(p.profile.AllowCollectors) == 0 {
+		return true
+	}
+	for _, a := range p.profile.AllowCollectors {
+		if a == id {
+			return true
+		}
+	}
+	return false
 }
 
 func collectorProtocol(collectorID string) string {
@@ -322,7 +368,7 @@ func (p *Planner) likelyCollectorsForPort(port uint16, transport model.Transport
 func (p *Planner) filterRegistered(ids []string) []string {
 	out := make([]string, 0, len(ids))
 	for _, id := range ids {
-		if p.registry.Has(id) {
+		if p.registry.Has(id) && p.collectorAllowed(id) {
 			out = append(out, id)
 		}
 	}

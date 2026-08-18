@@ -136,6 +136,45 @@ func assertOutcome(t *testing.T, ln net.Listener, extra map[string]string, want 
 	}
 }
 
+func TestLDAPRootDSEFragmented(t *testing.T) {
+	entry := ldap.EncodeSearchResultEntry(map[string][]string{
+		"vendorName": {"OpenLDAP"},
+	})
+	ln := serveLDAPSlow(t, entry)
+	defer func() { _ = ln.Close() }()
+	port := uint16(ln.Addr().(*net.TCPAddr).Port)
+	col, _ := ldap.New(engine.Config{Timeout: 2 * time.Second})
+	ep := model.NewEndpoint("127.0.0.1", port, model.TransportTCP, model.EndpointOpen)
+	res, err := col.RunResult(context.Background(), engine.CollectorInput{Endpoint: &ep})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if res.Outcome != engine.OutcomeSuccess {
+		t.Fatalf("fragmented ldap outcome=%q", res.Outcome)
+	}
+}
+
+func serveLDAPSlow(t *testing.T, reply []byte) net.Listener {
+	t.Helper()
+	ln, err := net.Listen("tcp", "127.0.0.1:0")
+	if err != nil {
+		t.Fatal(err)
+	}
+	go func() {
+		c, err := ln.Accept()
+		if err != nil {
+			return
+		}
+		defer func() { _ = c.Close() }()
+		buf := make([]byte, 1024)
+		_, _ = c.Read(buf)
+		for i := 0; i < len(reply); i++ {
+			_, _ = c.Write(reply[i : i+1])
+		}
+	}()
+	return ln
+}
+
 func serveLDAP(t *testing.T, reply []byte, useTLS bool) net.Listener {
 	t.Helper()
 	var ln net.Listener

@@ -22,6 +22,16 @@ func TestSMTPAcceptsSMTP(t *testing.T) {
 	assertOutcome(t, ln, engine.OutcomeSuccess)
 }
 
+func TestSMTPAcceptsGenericGreetingWithEHLO(t *testing.T) {
+	ln := serveLines(t, []string{
+		"220 mail.example.com ready\r\n",
+		"250-mail.example.com\r\n",
+		"250 STARTTLS\r\n",
+	})
+	defer func() { _ = ln.Close() }()
+	assertOutcome(t, ln, engine.OutcomeSuccess)
+}
+
 func TestSMTPRejectsFTP(t *testing.T) {
 	ln := serveLines(t, []string{"220 ftp.example.com FTP server ready\r\n"})
 	defer func() { _ = ln.Close() }()

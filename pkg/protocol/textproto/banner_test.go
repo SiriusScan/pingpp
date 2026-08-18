@@ -14,6 +14,20 @@ import (
 	"github.com/SiriusScan/ping++/pkg/protocol/textproto"
 )
 
+func TestUseTLSImplicitPorts(t *testing.T) {
+	ep993 := model.NewEndpoint("127.0.0.1", 993, model.TransportTCP, model.EndpointOpen)
+	if !textproto.UseTLS(engine.CollectorInput{Endpoint: &ep993}) {
+		t.Fatal("993 should use implicit TLS")
+	}
+	ep25 := model.NewEndpoint("127.0.0.1", 25, model.TransportTCP, model.EndpointOpen)
+	if textproto.UseTLS(engine.CollectorInput{Endpoint: &ep25}) {
+		t.Fatal("25 should not use implicit TLS")
+	}
+	if !textproto.UseTLS(engine.CollectorInput{Endpoint: &ep25, Extra: map[string]string{"tls": "1"}}) {
+		t.Fatal("tls=1 extra should enable TLS")
+	}
+}
+
 func TestFTPBanner(t *testing.T) {
 	ln := serveLines(t, []string{"220 Welcome to ftp.example\r\n"})
 	defer func() { _ = ln.Close() }()

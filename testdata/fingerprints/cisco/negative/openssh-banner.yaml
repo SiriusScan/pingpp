@@ -2,4 +2,5 @@ observation_type: ssh
 payload:
   banner: SSH-2.0-OpenSSH_9.6
 reject:
+  product: Cisco IOS
   vendor: Cisco

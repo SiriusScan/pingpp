@@ -20,7 +20,7 @@ func New(cfg engine.Config) (*Collector, error) {
 	return &Collector{timeout: engine.EffectiveTimeout(cfg)}, nil
 }
 func (c *Collector) Metadata() engine.CollectorMetadata {
-	return engine.CollectorMetadata{ID: id, Stage: engine.StageCollect, Transports: []model.Transport{model.TransportTCP}, DefaultPorts: []uint16{25, 587}, Cost: 2, Priority: 50, SideEffectRisk: "low", SafeForOT: true}
+	return engine.CollectorMetadata{ID: id, Stage: engine.StageCollect, Transports: []model.Transport{model.TransportTCP}, DefaultPorts: []uint16{25, 465, 587}, Cost: 2, Priority: 50, SideEffectRisk: "low", SafeForOT: true}
 }
 func (c *Collector) Run(ctx context.Context, in engine.CollectorInput) ([]model.ObservationRecord, error) {
 	res, err := c.RunResult(ctx, in)
@@ -36,11 +36,10 @@ func matchSMTP(p textproto.BannerObservation) bool {
 	if !strings.HasPrefix(p.Banner, "220") {
 		return false
 	}
-	u := strings.ToUpper(p.Banner)
-	if strings.Contains(u, "FTP") {
+	if strings.Contains(strings.ToUpper(p.Banner), "FTP") {
 		return false
 	}
-	return strings.Contains(u, "SMTP")
+	return textproto.HasCode(p.Reply, "250")
 }
 
 func Register(r *engine.Registry) {

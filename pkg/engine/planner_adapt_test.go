@@ -32,6 +32,25 @@ func TestPlannerTLSSuccessReplansHTTP(t *testing.T) {
 	}
 }
 
+func TestPlannerTLSSuccessReplansIMAPOn993(t *testing.T) {
+	reg := engine.NewRegistry()
+	imap := &scriptedCollector{id: "collect.imap", protocol: "imap", outcome: engine.OutcomeSuccess}
+	http := &scriptedCollector{id: "collect.http", protocol: "http", outcome: engine.OutcomeSuccess}
+	reg.MustRegister("collect.tls", func(cfg engine.Config) (engine.Collector, error) {
+		return &scriptedCollector{id: "collect.tls", protocol: "tls", outcome: engine.OutcomeSuccess}, nil
+	})
+	reg.MustRegister("collect.imap", func(cfg engine.Config) (engine.Collector, error) { return imap, nil })
+	reg.MustRegister("collect.http", func(cfg engine.Config) (engine.Collector, error) { return http, nil })
+
+	scanFake(t, withEnumerate(reg, 993), 993)
+	if imap.runs() != 1 {
+		t.Fatalf("IMAP runs=%d, want 1 after TLS success on 993", imap.runs())
+	}
+	if imap.lastExtra["tls"] != "1" {
+		t.Fatalf("IMAP Extra=%v, want tls=1", imap.lastExtra)
+	}
+}
+
 func TestPlannerSSHSuccessStopsIrrelevantCollectors(t *testing.T) {
 	reg := engine.NewRegistry()
 	http := &scriptedCollector{id: "collect.http", protocol: "http", outcome: engine.OutcomeSuccess}
@@ -188,6 +207,10 @@ func (s *scriptedCollector) Metadata() engine.CollectorMetadata {
 		ports, prio = []uint16{22}, 75
 	case "collect.http":
 		ports, prio = []uint16{80, 8080, 443, 8443}, 60
+	case "collect.imap":
+		ports, prio = []uint16{143, 993}, 45
+	case "collect.smtp":
+		ports, prio = []uint16{25, 465, 587}, 50
 	case "collect.tls":
 		ports, prio = []uint16{443, 8443}, 70
 	case "collect.mysql":

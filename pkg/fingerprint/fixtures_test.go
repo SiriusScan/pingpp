@@ -14,6 +14,7 @@ import (
 
 type fixtureFile struct {
 	ObservationType string         `yaml:"observation_type"`
+	RuleIDs         []string       `yaml:"rule_ids"`
 	Payload         map[string]any `yaml:"payload"`
 	Expect          *fixtureExpect `yaml:"expect"`
 	Reject          *fixtureReject `yaml:"reject"`
@@ -81,31 +82,28 @@ func TestStrongExactYAMLRulesHaveNegativeFixtures(t *testing.T) {
 	if err := e.LoadBuiltinPacks(); err != nil {
 		t.Fatal(err)
 	}
-	negs := collectRejects(t)
+	negs := collectNegatives(t)
 	for _, r := range e.YAMLRules() {
 		for _, c := range r.Claims {
 			if c.Certainty != model.ConfidenceStrong && c.Certainty != model.ConfidenceExact {
 				continue
 			}
-			ok := false
-			for _, n := range negs {
-				if c.Product != "" && n.Product == c.Product {
-					ok = true
-				}
-				if c.Vendor != "" && n.Vendor == c.Vendor {
-					ok = true
-				}
-			}
-			if !ok {
-				t.Errorf("strong/exact rule %s claim %s/%s has no negative fixture", r.ID, c.Vendor, c.Product)
+			if !negativeCoversRule(r, c, negs) {
+				t.Errorf("strong/exact rule %s claim %s/%s (obs=%s) has no rule- or product-tied negative fixture", r.ID, c.Vendor, c.Product, r.Inputs.ObservationType)
 			}
 		}
 	}
 }
 
-func collectRejects(t *testing.T) []fixtureReject {
+type negativeFixture struct {
+	obsType string
+	ruleIDs []string
+	reject  fixtureReject
+}
+
+func collectNegatives(t *testing.T) []negativeFixture {
 	t.Helper()
-	var out []fixtureReject
+	var out []negativeFixture
 	root := fixtureRoot(t)
 	_ = filepath.Walk(root, func(path string, info os.FileInfo, err error) error {
 		if err != nil || info.IsDir() || !strings.Contains(path, string(filepath.Separator)+"negative"+string(filepath.Separator)) {
@@ -119,10 +117,31 @@ func collectRejects(t *testing.T) []fixtureReject {
 		if err := yaml.Unmarshal(raw, &fx); err != nil || fx.Reject == nil {
 			return nil
 		}
-		out = append(out, *fx.Reject)
+		out = append(out, negativeFixture{obsType: fx.ObservationType, ruleIDs: fx.RuleIDs, reject: *fx.Reject})
 		return nil
 	})
 	return out
+}
+
+func negativeCoversRule(r fingerprint.Rule, c fingerprint.RuleClaim, negs []negativeFixture) bool {
+	for _, n := range negs {
+		for _, id := range n.ruleIDs {
+			if id == r.ID {
+				return true
+			}
+		}
+		if c.Product == "" {
+			continue
+		}
+		if n.reject.Product != c.Product {
+			continue
+		}
+		if r.Inputs.ObservationType != "" && n.obsType != "" && n.obsType != r.Inputs.ObservationType {
+			continue
+		}
+		return true
+	}
+	return false
 }
 
 func claimMatches(claims []model.Claim, product, vendor, min string) bool {

@@ -446,6 +446,74 @@ func TestScanResolvedAllAddresses(t *testing.T) {
 	if len(res.Asset.Hostnames) == 0 || res.Asset.Hostnames[0] != "multi.test" {
 		t.Fatalf("hostnames=%v", res.Asset.Hostnames)
 	}
+	for _, ip := range []string{"192.0.2.10", "192.0.2.11"} {
+		key := "enumerate.tcp:" + ip
+		if res.State == nil || !res.State.IsComplete(key) {
+			t.Fatalf("missing completed key %s in %+v", key, res.State.Completed)
+		}
+	}
+}
+
+func TestScanResolvedSharesNetworkBudget(t *testing.T) {
+	reg := engine.BuildDefaultRegistry(icmp.Register, tcp.Register)
+	eng, err := engine.NewEngine(engine.Options{
+		Profile:       engine.ProfileQuick,
+		SkipDiscovery: true,
+		TCPPorts:      []uint16{1, 2, 3, 4},
+		RatePerSecond: 1000,
+		Registry:      reg,
+		Fingerprints:  stubMatcher{},
+		MaxNetworkOps: 1,
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+	defer cancel()
+	target := model.NewTargetHostname("multi.test", "192.0.2.10", "192.0.2.11")
+	res, err := eng.ScanResolved(ctx, target)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if res.State.Budget.NetworkOps > 1 {
+		t.Fatalf("shared budget exceeded: ops=%d", res.State.Budget.NetworkOps)
+	}
+}
+
+func TestCollectorPanicIsInternalError(t *testing.T) {
+	reg := engine.NewRegistry()
+	reg.MustRegister("enumerate.tcp", func(cfg engine.Config) (engine.Collector, error) {
+		return &openPortEnumerator{port: 22}, nil
+	})
+	reg.MustRegister("collect.banner", func(cfg engine.Config) (engine.Collector, error) {
+		return panicCollector{id: "collect.banner"}, nil
+	})
+	eng, err := engine.NewEngine(engine.Options{
+		Profile:       engine.ProfileQuick,
+		SkipDiscovery: true,
+		TCPPorts:      []uint16{22},
+		RatePerSecond: 1000,
+		Registry:      reg,
+		Fingerprints:  stubMatcher{},
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	ctx, cancel := context.WithTimeout(context.Background(), 3*time.Second)
+	defer cancel()
+	_, err = eng.ScanResolved(ctx, model.NewTargetIP("127.0.0.1"))
+	if err != nil {
+		t.Fatalf("panic must not escape scan: %v", err)
+	}
+}
+
+type panicCollector struct{ id string }
+
+func (p panicCollector) Metadata() engine.CollectorMetadata {
+	return engine.CollectorMetadata{ID: p.id, Stage: engine.StageCollect, Priority: 20, Cost: 1, Transports: []model.Transport{model.TransportTCP}}
+}
+func (p panicCollector) Run(ctx context.Context, in engine.CollectorInput) ([]model.ObservationRecord, error) {
+	panic("collector boom")
 }
 
 func TestRateLimiter(t *testing.T) {

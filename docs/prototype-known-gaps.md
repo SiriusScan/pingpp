@@ -37,7 +37,7 @@ Reviewed prototype commit: `bfef5cb`.
 
 ## Current head
 
-This commit (`9403a4d`) — R11b–R18: honest R11–R14 completion plus embed/corpus, ScanOptions, multi-address, runtime metrics.
+This commit — review-blocker hardening: Recog service/OS/hw claims + captures + Subject, R12 native FTP/SMTP + implicit TLS, ResultCollector MQTT/AMQP/VNC/SOCKS, shared multi-address budgets, SMB metering, runtime metric semantics.
 
 Canonical path:
 
@@ -129,12 +129,14 @@ Acceptance tests:
 - `TestDNSCollectorUsesMeteredTransport`
 - `TestSNMPCollectorCountsDial`
 - `TestEnumerateStopsAtNetworkBudget` / `TestNetworkBudgetStopsLaterCollectors`
+- `TestMeterRespectsByteBudget` — `MaxBytesPerHost` / meter `MaxBytes` blocks further dials
 
 Known debt:
 - SNMP still self-dials inside `gosnmp.Connect`; the scan meter reserves the op with `CountDial` and wraps the resulting conn for bytes. The library socket is not `DialUDP`.
 - ICMP discovery uses `CountDial`, not wrapped pinger I/O, so ICMP payload bytes are not counted.
 - Legacy `pkg/probes/*` still dial on their own (not on the Engine path).
 - Unregistered `collect.tcpstack` still uses `net.Dialer`.
+- SMB now dials through the scan meter via `ProxyDialer`; the go-smb library still owns the protocol framing.
 
 ---
 
@@ -169,7 +171,7 @@ Acceptance tests:
 - `TestClassificationPassesHostnameTarget` — hostname survives into collectors for SNI/Host
 
 Known debt:
-- some remaining collectors are still legacy `Run()`-only; Engine does not treat their Completeness as a match
+- Unregistered `collect.tcpstack` is still `Run()`-only and is not on the production registry.
 
 ---
 
@@ -221,20 +223,23 @@ Acceptance tests:
 
 Known debt:
 - extra same-host URLs beyond favicon/robots are enrichment (`collect.http.enrich`), not the default GET
+- `www.` and apex hostnames are treated as the same host for redirect following; a dedicated canonical-host fixture is not in testdata
 
 ---
 
 ## R11 Recog / Wappalyzer
 
-Status: COMPLETE (R11a adapters + R11b corpus import)
+Status: COMPLETE for bundled-corpus semantics (not the entire Recog git tree)
 
-Commit: `d6dd7c3` adapters; this commit imports Rapid7 Recog XML and expands Wappalyzer JSON
+Commit: `d6dd7c3` adapters; `9403a4d` corpus import; this commit preserves Recog param structure
 
 R11a adapter support: COMPLETE  
-R11b real corpus import / coverage: COMPLETE at bundled scale (not the entire Recog git tree)
+R11b real corpus import / coverage: COMPLETE at bundled scale, with structured claims
 
 Acceptance tests:
 - `TestNativeRecogXMLOpenSSH` / `TestRecogParamValueAttribute` — Recog XML, including `value=""` attributes
+- `TestRecogSeparatesServiceAndOSWithCaptures` — `service.*` vs `os.*` vs `hw.*`; `pos=N` versions; CPE `{service.version}`
+- `TestRecogClaimsKeepEndpointSubject` / `TestRecogClaimsFromDistinctPortsDoNotFuse` — `:22` and `:2222` stay distinct
 - `TestRecogHTTPHeaderServerMapping` — `http_header.server` → HTTP `server`
 - `TestRecogSkipsNonRE2` / `TestRecogMatchesSSHSoftwareIdent` — skip PCRE; match `SSH-x.x-` ident
 - `TestWappalyzerJSONNginx` — technologies.json Server header
@@ -250,28 +255,29 @@ Known debt:
 
 ## R12 Text protocols
 
-Status: COMPLETE
+Status: COMPLETE for FTP/SMTP native replies and implicit TLS; STARTTLS upgrade still debt
 
-Commit: `ef6bed4` shared helper; this commit adds collector-level pos/neg tests and tightens predicates
+Commit: `ef6bed4` shared helper; `9403a4d` pos/neg tests; this commit uses FEAT/EHLO semantics and TLS wrapping
 
 Acceptance tests:
-- `TestFTPAcceptsFTP` / `TestFTPRejectsSMTP` / `TestFTPRejectsHTTPLookalike`
-- `TestSMTPAcceptsSMTP` / `TestSMTPRejectsFTP` / `TestSMTPRejectsHTTPLookalike`
-- `TestPOP3AcceptsOK` / `TestPOP3RejectsRandomBanner`
-- `TestIMAPAcceptsGreeting` / `TestIMAPRejectsRandomBanner`
-- `TestTelnetAcceptsLoginPrompt` / `TestTelnetRejectsSSH` / `TestTelnetRejectsHTTP`
+- `TestFTPAcceptsFTP` / `TestFTPAcceptsGenericGreetingWithFEAT` / `TestFTPRejectsGenericGreetingWithoutFEAT`
+- `TestFTPRejectsSMTP` / `TestFTPRejectsHTTPLookalike`
+- `TestSMTPAcceptsSMTP` / `TestSMTPAcceptsGenericGreetingWithEHLO` / `TestSMTPRejectsFTP`
+- `TestPOP3AcceptsOK` / `TestIMAPAcceptsGreeting` plus advertised 995/993
+- `TestPlannerTLSSuccessReplansIMAPOn993` — TLS success schedules IMAP with `tls=1`
+- `TestUseTLSImplicitPorts` — 465/993/995 and Extra `tls=1`
 
 Known debt:
-- FTP vs SMTP still uses banner keywords (`SMTP`/`ESMTP`/`FTP`), not a full state machine.
+- Explicit STARTTLS upgrade on 25/587/143/110 is not implemented (implicit TLS on 465/993/995 is).
 - Telnet match requires IAC, login/password, or the word telnet — not a full option parser.
 
 ---
 
 ## R13 DB / middleware
 
-Status: COMPLETE for in-tree DB collectors (MySQL, PostgreSQL, MSSQL, Redis, MongoDB, Memcached)
+Status: COMPLETE for in-tree DB collectors plus MQTT/AMQP/VNC/SOCKS ResultCollector conversion
 
-Commit: `ef6bed4` MySQL/Postgres; this commit hardens Mongo/MSSQL/Memcached and adds framing tests
+Commit: `ef6bed4` MySQL/Postgres; `9403a4d` Mongo/MSSQL/Memcached; this commit converts MQTT/AMQP/VNC/SOCKS to `RunResult`
 
 Acceptance tests:
 - `TestPostgresMatchSN` / `TestPostgresRejectsHTTP`
@@ -280,9 +286,12 @@ Acceptance tests:
 - `TestMSSQLPreloginVersionSuccess` / `TestMSSQLRejectsHTTPLookalike` / `TestMSSQLRejectsResponseWithoutVersion`
 - `TestMemcachedAcceptsVersion` / `TestMemcachedRejectsHTTPLookalike` / `TestMemcachedRejectsRedisPong`
 - `TestRedisAcceptsPong` / `TestRedisRejectsHTTPLookalike` / `TestRedisRejectsMemcachedVersion`
+- `TestMQTTAcceptsCONNACK` / `TestMQTTRejectsHTTPLookalike`
+- `TestAMQPAcceptsHeader` / `TestAMQPRejectsHTTPLookalike`
+- `TestVNCAcceptsRFB` / `TestVNCRejectsHTTPLookalike`
+- `TestSOCKSAcceptsMethodResponse` / `TestSOCKSRejectsHTTPLookalike`
 
 Known debt:
-- MQTT/AMQP/VNC/SOCKS were not in the R13 hardening pass (do not add protocols; they remain weaker collectors).
 - Mongo success is framed `OP_REPLY`/`OP_MSG`, not a decoded isMaster document.
 
 ---
@@ -295,6 +304,7 @@ Commit: this commit — LDAPS/RootDSE, X.224/RDP negotiation, SSH ignore/debug s
 
 Acceptance tests:
 - `TestLDAPRootDSEAttributes` — vendorName, namingContexts, dnsHostName, SASL, versions
+- `TestLDAPRootDSEFragmented` — BER tag+length then `ReadFull` of the envelope
 - `TestLDAPRejectsBareBERSequence` — first BER byte `0x30` is not a match
 - `TestLDAPSOnTLS` — Extra `tls=1` (port 636 uses the same DialTLS path)
 - `TestRDPNegotiationHybrid` / `TestRDPNegotiationSSL` / `TestRDPRejectsTPKTWithoutConfirm`
@@ -317,7 +327,7 @@ Acceptance tests:
 - `TestBuiltinCorpusScale` — embed FS has real Recog/Wappalyzer scale
 - `TestLoadYAMLUnknownFieldFailsClosed` — unknown YAML fields fail closed
 - `TestFixtureCorpus` — `testdata/fingerprints/<product>/{positive,negative}/`
-- `TestStrongExactYAMLRulesHaveNegativeFixtures` — every strong/exact YAML claim has a negative fixture
+- `TestStrongExactYAMLRulesHaveNegativeFixtures` — strong/exact YAML claims need a negative tied to rule id or product+observation type (vendor-only is not enough)
 - `TestHTTPBodyArtifactAndTruncation` — 256 KiB cap
 - `TestHTTPApplicationPack` — title-only Grafana/Jenkins still match (now hint); server headers remain strong/exact
 
@@ -329,12 +339,14 @@ Known debt:
 
 ## R16 Sirius adapter / ScanOptions
 
-Status: COMPLETE
+Status: COMPLETE for Engine-path option semantics
 
-Commit: this commit — `scan.ScanOptions` + `scan.Scan`; appscanner is Engine → Scan → `output.ToSiriusHost`
+Commit: `9403a4d` ScanOptions; this commit maps `DisableICMP` → `SkipICMP` and honors `ProbeTypes`
 
 Acceptance tests:
-- `TestScanOptionsWrapsEngineOptions` — one options type wrapping `engine.Options`; legacy off by default
+- `TestScanOptionsWrapsEngineOptions` — one options type wrapping `engine.Options`; `SkipICMP` does not imply `SkipDiscovery`; `ProbeTypes` is carried
+- `TestSkipICMPKeepsTCPDiscovery` — ICMP off leaves `discovery.tcp`
+- `TestProbeTypesFilterCollectors` — `icmp,tcp` does not enable `collect.ssh`/`collect.http`
 
 Known debt:
 - `fingerprintLegacyRunner` remains behind `UseLegacyRunner` only.
@@ -344,12 +356,13 @@ Known debt:
 
 ## R17 IPv6 / multi-address
 
-Status: COMPLETE
+Status: COMPLETE for shared logical-scan budget and merged protocol state
 
-Commit: this commit — `ScanResolved` walks every A/AAAA; hostname kept; discovery/enum complete keys are per-address
+Commit: `9403a4d` ScanResolved; this commit shares Meter/Budget and merges Matched/RuledOut/reasons
 
 Acceptance tests:
-- `TestScanResolvedAllAddresses` — two resolved IPs both appear on the Asset; hostname preserved
+- `TestScanResolvedAllAddresses` — two resolved IPs both appear; hostname preserved; per-address complete keys
+- `TestScanResolvedSharesNetworkBudget` — two addresses share one `MaxNetworkOps`
 - `TestClassificationPassesHostnameTarget` — hostname survives into collectors for SNI/Host
 
 Known debt:
@@ -359,17 +372,22 @@ Known debt:
 
 ## R18 Metrics, unknowns, hardening
 
-Status: COMPLETE
+Status: PARTIAL
 
-Commit: this commit — runtime counters; precision-at-tier moved to `pkg/metrics/eval`; unmatched banner dump; adapter/flatten panic recovery
+Commit: `9403a4d` runtime counters; this commit repairs metric semantics, collector panic containment, SMB metering, byte budget, and a fusion benchmark
 
 Acceptance tests:
-- `TestRuntimeCounters` — collectors, matches, timeouts, bytes, unknown endpoints, claim tiers, unmatched dump
+- `TestRuntimeCounters` — collectors, protocol matches (via `RecordProtocolMatch`), timeouts, bytes, unknown endpoints, claim tiers, unmatched dump
 - `TestEvalPrecisionAtTier` — `ExactCorrect`/`StrongCorrect` live in eval tooling, not `metrics.Counters`
+- `TestCollectorPanicIsInternalError` — collector panic becomes `internal_error` and does not abort the scan
+- `TestMeterRespectsByteBudget` — `MaxBytes` blocks further dials
+- `BenchmarkFuseIndependentSignals` — fusion microbenchmark exists
 
 Known debt:
-- SNMP/ICMP payload bytes remain incompletely metered (R5).
 - Unmatched banner dump is in-memory (64 entries), not a file sink.
+- Performance work is a microbenchmark, not a regression suite against live corpus timings.
+- Embedded Recog/Wappalyzer license notices live under `fingerprints/`; a packaging NOTICE aggregation is not automated.
+- SNMP/ICMP payload bytes remain incompletely metered (R5).
 
 ---
 

@@ -292,7 +292,12 @@ func sameHTTPHost(a, b *url.URL) bool {
 	if a == nil || b == nil {
 		return false
 	}
-	return strings.EqualFold(a.Hostname(), b.Hostname())
+	return canonicalHTTPHost(a.Hostname()) == canonicalHTTPHost(b.Hostname())
+}
+
+func canonicalHTTPHost(h string) string {
+	h = strings.ToLower(strings.TrimSuffix(h, "."))
+	return strings.TrimPrefix(h, "www.")
 }
 
 func readLimited(r io.Reader, max int) ([]byte, bool) {

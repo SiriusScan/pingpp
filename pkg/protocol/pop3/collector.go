@@ -19,7 +19,7 @@ func New(cfg engine.Config) (*Collector, error) {
 	return &Collector{timeout: engine.EffectiveTimeout(cfg)}, nil
 }
 func (c *Collector) Metadata() engine.CollectorMetadata {
-	return engine.CollectorMetadata{ID: id, Stage: engine.StageCollect, Transports: []model.Transport{model.TransportTCP}, DefaultPorts: []uint16{110}, Cost: 2, Priority: 45, SideEffectRisk: "low", SafeForOT: true}
+	return engine.CollectorMetadata{ID: id, Stage: engine.StageCollect, Transports: []model.Transport{model.TransportTCP}, DefaultPorts: []uint16{110, 995}, Cost: 2, Priority: 45, SideEffectRisk: "low", SafeForOT: true}
 }
 func (c *Collector) Run(ctx context.Context, in engine.CollectorInput) ([]model.ObservationRecord, error) {
 	res, err := c.RunResult(ctx, in)

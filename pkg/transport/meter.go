@@ -21,6 +21,7 @@ type Meter struct {
 	BytesRead     int64
 	BytesSent     int64
 	MaxNetworkOps int
+	MaxBytes      int64
 }
 
 // WithMeter stores m on ctx.
@@ -45,6 +46,9 @@ func (m *Meter) AddDial() error {
 	m.mu.Lock()
 	defer m.mu.Unlock()
 	if m.MaxNetworkOps > 0 && m.NetworkOps >= m.MaxNetworkOps {
+		return ErrBudgetExceeded
+	}
+	if m.MaxBytes > 0 && m.BytesRead+m.BytesSent >= m.MaxBytes {
 		return ErrBudgetExceeded
 	}
 	m.NetworkOps++

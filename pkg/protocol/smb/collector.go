@@ -5,6 +5,8 @@ import (
 	"context"
 	"encoding/binary"
 	"fmt"
+	"net"
+	"strconv"
 	"strings"
 	"time"
 
@@ -13,6 +15,7 @@ import (
 
 	"github.com/SiriusScan/ping++/pkg/engine"
 	"github.com/SiriusScan/ping++/pkg/model"
+	"github.com/SiriusScan/ping++/pkg/transport"
 )
 
 const collectorID = "collect.smb"
@@ -66,7 +69,8 @@ func (c *Collector) RunResult(ctx context.Context, in engine.CollectorInput) (en
 
 	options := gosmb.Options{
 		Host: ip, Port: port, DialTimeout: c.timeout,
-		Initiator: &spnego.NTLMInitiator{User: "", Password: "", Domain: ""},
+		Initiator:   &spnego.NTLMInitiator{User: "", Password: "", Domain: ""},
+		ProxyDialer: meterDialer{ctx: ctx, timeout: c.timeout},
 	}
 	session, err := gosmb.NewConnection(options)
 	payload := model.SMBObservation{}
@@ -112,6 +116,31 @@ func SMBProtocolEvidence(errStr string) bool {
 	}
 	l := strings.ToLower(errStr)
 	return strings.Contains(l, "logon failed") || strings.Contains(l, "signing")
+}
+
+type meterDialer struct {
+	ctx     context.Context
+	timeout time.Duration
+}
+
+func (d meterDialer) Dial(network, address string) (net.Conn, error) {
+	return d.DialContext(d.ctx, network, address)
+}
+
+func (d meterDialer) DialContext(ctx context.Context, network, address string) (net.Conn, error) {
+	host, portStr, err := net.SplitHostPort(address)
+	if err != nil {
+		return nil, err
+	}
+	port64, err := strconv.ParseUint(portStr, 10, 16)
+	if err != nil {
+		return nil, err
+	}
+	dialCtx := ctx
+	if m := transport.ContextMeter(d.ctx); m != nil {
+		dialCtx = transport.WithMeter(ctx, m)
+	}
+	return transport.DialTCP(dialCtx, host, uint16(port64), d.timeout)
 }
 
 func fillSMB(session *gosmb.Connection, payload *model.SMBObservation) {

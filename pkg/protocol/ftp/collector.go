@@ -32,12 +32,40 @@ func (c *Collector) RunResult(ctx context.Context, in engine.CollectorInput) (en
 	}
 	return textproto.CollectBannerResult(ctx, in, c.timeout, id, textproto.ObsFTP, "ftp", "FEAT\r\n", matchFTP)
 }
+
 func matchFTP(p textproto.BannerObservation) bool {
 	if !strings.HasPrefix(p.Banner, "220") {
 		return false
 	}
 	u := strings.ToUpper(p.Banner)
-	return !strings.Contains(u, "SMTP")
+	if strings.Contains(u, "SMTP") || strings.Contains(u, "ESMTP") {
+		return false
+	}
+	if textproto.HasCode(p.Reply, "250") && !textproto.HasCode(p.Reply, "211") {
+		return false
+	}
+	if textproto.HasCode(p.Reply, "211") {
+		return true
+	}
+	// FEAT unimplemented is still FTP when the reply is a 5xx without SMTP enhanced status.
+	return ftpError(p.Reply)
+}
+
+func ftpError(reply string) bool {
+	if reply == "" {
+		return false
+	}
+	if !textproto.HasCode(reply, "500") && !textproto.HasCode(reply, "502") && !textproto.HasCode(reply, "551") {
+		return false
+	}
+	if strings.Contains(reply, ".") {
+		for _, f := range strings.Fields(reply) {
+			if len(f) >= 5 && f[1] == '.' && f[3] == '.' {
+				return false
+			}
+		}
+	}
+	return true
 }
 
 func Register(r *engine.Registry) {

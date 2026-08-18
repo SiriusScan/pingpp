@@ -91,14 +91,13 @@ func (c *Collector) RunResult(ctx context.Context, in engine.CollectorInput) (en
 		obs.Completeness = "none"
 		return engine.CollectorResult{Outcome: engine.OutcomeNoMatch, Protocol: "ldap", Observations: []model.ObservationRecord{obs}}, nil
 	}
-	buf := make([]byte, 8*1024)
-	n, err := conn.Read(buf)
-	if err != nil && n == 0 {
+	msg, err := readBER(conn, 64*1024)
+	if err != nil {
 		obs.Error = err.Error()
 		obs.Completeness = "none"
 		return engine.CollectorResult{Outcome: engine.OutcomeNoMatch, Protocol: "ldap", Observations: []model.ObservationRecord{obs}}, nil
 	}
-	payload, ok := decodeRootDSE(buf[:n])
+	payload, ok := decodeRootDSE(msg)
 	if !ok {
 		obs.Error = "not ldap search result"
 		obs.Completeness = "none"

@@ -32,11 +32,19 @@ func (c *Counters) RecordCollector(outcome string) {
 	defer c.mu.Unlock()
 	c.CollectorsExecuted++
 	switch outcome {
-	case "success":
-		c.ProtocolMatches++
 	case "timeout":
 		c.Timeouts++
 	}
+}
+
+// RecordProtocolMatch counts an endpoint-scoped protocol claim, not a generic collector success.
+func (c *Counters) RecordProtocolMatch() {
+	if c == nil {
+		return
+	}
+	c.mu.Lock()
+	defer c.mu.Unlock()
+	c.ProtocolMatches++
 }
 
 // RecordBytes adds payload bytes observed by the meter.

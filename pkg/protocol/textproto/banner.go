@@ -5,6 +5,7 @@ import (
 	"bufio"
 	"context"
 	"fmt"
+	"net"
 	"strings"
 	"time"
 
@@ -32,7 +33,7 @@ func CollectBanner(ctx context.Context, in engine.CollectorInput, timeout time.D
 	if in.Asset != nil {
 		obs.AssetID = in.Asset.ID
 	}
-	conn, err := transport.DialTCP(ctx, in.Endpoint.Address, in.Endpoint.Port, timeout)
+	conn, err := dialText(ctx, in, timeout)
 	if err != nil {
 		obs.Error = err.Error()
 		obs.Completeness = "none"
@@ -57,11 +58,7 @@ func CollectBanner(ctx context.Context, in engine.CollectorInput, timeout time.D
 				continue
 			}
 			lines = append(lines, line)
-			// SMTP EHLO ends with "250 " (space) final line
-			if strings.HasPrefix(line, "250 ") {
-				break
-			}
-			if strings.HasPrefix(line, "220 ") && !strings.HasPrefix(command, "EHLO") {
+			if isFinalReply(line) {
 				break
 			}
 		}
@@ -76,6 +73,71 @@ func CollectBanner(ctx context.Context, in engine.CollectorInput, timeout time.D
 	}
 	_ = obs.SetPayload(payload)
 	return obs, nil
+}
+
+func dialText(ctx context.Context, in engine.CollectorInput, timeout time.Duration) (net.Conn, error) {
+	if UseTLS(in) {
+		serverName := in.Endpoint.Address
+		if in.Target != nil && in.Target.Hostname != "" {
+			serverName = in.Target.Hostname
+		}
+		return transport.DialTLS(ctx, in.Endpoint.Address, in.Endpoint.Port, serverName, timeout)
+	}
+	return transport.DialTCP(ctx, in.Endpoint.Address, in.Endpoint.Port, timeout)
+}
+
+// UseTLS reports implicit TLS (port 465/993/995) or Extra/prior TLS state.
+func UseTLS(in engine.CollectorInput) bool {
+	if in.Extra != nil && in.Extra["tls"] == "1" {
+		return true
+	}
+	if in.Endpoint == nil {
+		return false
+	}
+	switch in.Endpoint.Port {
+	case 465, 993, 995:
+		return true
+	}
+	if in.State != nil {
+		return in.State.HasProtocol(in.Endpoint.Key(), "tls")
+	}
+	return false
+}
+
+func isFinalReply(line string) bool {
+	if len(line) < 3 || line[0] < '1' || line[0] > '5' {
+		return false
+	}
+	if len(line) == 3 {
+		return isStatusCode(line)
+	}
+	if line[3] == '-' {
+		return false
+	}
+	return isStatusCode(line[:3])
+}
+
+func isStatusCode(s string) bool {
+	if len(s) != 3 {
+		return false
+	}
+	for i := 0; i < 3; i++ {
+		if s[i] < '0' || s[i] > '9' {
+			return false
+		}
+	}
+	return true
+}
+
+// HasCode reports whether reply lines include a complete SMTP/FTP status.
+func HasCode(text string, code string) bool {
+	for _, line := range strings.Split(text, "\n") {
+		line = strings.TrimSpace(line)
+		if strings.HasPrefix(line, code+" ") || strings.HasPrefix(line, code+"-") || line == code {
+			return true
+		}
+	}
+	return false
 }
 
 // CollectBannerResult is CollectBanner plus a protocol match decision.

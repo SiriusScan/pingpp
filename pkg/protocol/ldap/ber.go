@@ -2,6 +2,7 @@ package ldap
 
 import (
 	"fmt"
+	"io"
 )
 
 func berTLV(tag byte, val []byte) []byte {
@@ -87,6 +88,47 @@ func parseLen(b []byte) (int, int, error) {
 		n = (n << 8) | int(b[1+i])
 	}
 	return n, 1 + c, nil
+}
+
+func readBER(r io.Reader, max int) ([]byte, error) {
+	hdr := make([]byte, 2)
+	if _, err := io.ReadFull(r, hdr); err != nil {
+		return nil, err
+	}
+	if hdr[1] < 0x80 {
+		n := int(hdr[1])
+		if n < 0 || n > max {
+			return nil, fmt.Errorf("ber too large")
+		}
+		val := make([]byte, n)
+		if _, err := io.ReadFull(r, val); err != nil {
+			return nil, err
+		}
+		return append(hdr, val...), nil
+	}
+	c := int(hdr[1] & 0x7f)
+	if c == 0 || c > 3 {
+		return nil, fmt.Errorf("bad ber length")
+	}
+	lb := make([]byte, c)
+	if _, err := io.ReadFull(r, lb); err != nil {
+		return nil, err
+	}
+	n := 0
+	for _, b := range lb {
+		n = (n << 8) | int(b)
+	}
+	if n < 0 || n > max {
+		return nil, fmt.Errorf("ber too large")
+	}
+	val := make([]byte, n)
+	if _, err := io.ReadFull(r, val); err != nil {
+		return nil, err
+	}
+	out := make([]byte, 0, 2+c+n)
+	out = append(out, hdr...)
+	out = append(out, lb...)
+	return append(out, val...), nil
 }
 
 func decodeRootDSE(msg []byte) (Observation, bool) {

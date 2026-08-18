@@ -100,6 +100,14 @@ func TestWrapUDPKeepsPacketConn(t *testing.T) {
 	}
 }
 
+func TestMeterRespectsByteBudget(t *testing.T) {
+	m := &transport.Meter{MaxBytes: 1}
+	m.AddBytes(1, 0)
+	if err := m.AddDial(); !errors.Is(err, transport.ErrBudgetExceeded) {
+		t.Fatalf("err=%v want byte budget exceeded", err)
+	}
+}
+
 func TestMeterNilIsSafe(t *testing.T) {
 	var m *transport.Meter
 	if err := m.AddDial(); err != nil {

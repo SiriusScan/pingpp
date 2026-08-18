@@ -13,9 +13,29 @@ import (
 )
 
 func TestFTPAcceptsFTP(t *testing.T) {
-	ln := serveLines(t, []string{"220 ftp.example.com FTP server ready\r\n"})
+	ln := serveLines(t, []string{
+		"220 ftp.example.com ready\r\n",
+		"211-Features:\r\n",
+		"211 End\r\n",
+	})
 	defer func() { _ = ln.Close() }()
 	assertOutcome(t, ln, engine.OutcomeSuccess)
+}
+
+func TestFTPAcceptsGenericGreetingWithFEAT(t *testing.T) {
+	ln := serveLines(t, []string{
+		"220 Welcome to Acme service\r\n",
+		"211-Features:\r\n",
+		"211 End\r\n",
+	})
+	defer func() { _ = ln.Close() }()
+	assertOutcome(t, ln, engine.OutcomeSuccess)
+}
+
+func TestFTPRejectsGenericGreetingWithoutFEAT(t *testing.T) {
+	ln := serveLines(t, []string{"220 Welcome to Acme service\r\n"})
+	defer func() { _ = ln.Close() }()
+	assertOutcome(t, ln, engine.OutcomeNoMatch)
 }
 
 func TestFTPRejectsSMTP(t *testing.T) {

@@ -26,8 +26,12 @@ func (c *Collector) Metadata() engine.CollectorMetadata {
 	return engine.CollectorMetadata{ID: id, Stage: engine.StageCollect, Transports: []model.Transport{model.TransportTCP}, DefaultPorts: []uint16{5672}, Cost: 2, Priority: 45, SideEffectRisk: "low", SafeForOT: true}
 }
 func (c *Collector) Run(ctx context.Context, in engine.CollectorInput) ([]model.ObservationRecord, error) {
+	res, err := c.RunResult(ctx, in)
+	return res.Observations, err
+}
+func (c *Collector) RunResult(ctx context.Context, in engine.CollectorInput) (engine.CollectorResult, error) {
 	if in.Endpoint == nil {
-		return nil, fmt.Errorf("amqp: endpoint required")
+		return engine.CollectorResult{}, fmt.Errorf("amqp: endpoint required")
 	}
 	ref := in.Endpoint.Ref()
 	obs := model.ObservationRecord{ID: fmt.Sprintf("obs:amqp:%d", time.Now().UnixNano()), ProbeID: id, ObservationType: "amqp", Endpoint: &ref, Timestamp: time.Now().UTC(), CorrelationGroup: fmt.Sprintf("amqp:%s:%d", in.Endpoint.Address, in.Endpoint.Port)}
@@ -38,7 +42,7 @@ func (c *Collector) Run(ctx context.Context, in engine.CollectorInput) ([]model.
 	if err != nil {
 		obs.Error = err.Error()
 		obs.Completeness = "none"
-		return []model.ObservationRecord{obs}, nil
+		return engine.CollectorResult{Outcome: engine.OutcomeFromError(err), Protocol: "amqp", Observations: []model.ObservationRecord{obs}}, nil
 	}
 	defer func() { _ = conn.Close() }()
 	_ = conn.SetDeadline(time.Now().Add(c.timeout))
@@ -48,16 +52,21 @@ func (c *Collector) Run(ctx context.Context, in engine.CollectorInput) ([]model.
 	payload := Observation{}
 	if err == nil && n > 0 {
 		payload.ProtocolHeader = string(buf[:min(n, 8)])
-		payload.IsAMQP = strings.HasPrefix(payload.ProtocolHeader, "AMQP") || buf[0] == 0x01 // connection.start method
+		payload.IsAMQP = strings.HasPrefix(payload.ProtocolHeader, "AMQP") || (buf[0] == 0x01 && n >= 8)
+	}
+	if payload.IsAMQP {
 		obs.Completeness = "full"
+		_ = obs.SetPayload(payload)
+		return engine.CollectorResult{Outcome: engine.OutcomeSuccess, Protocol: "amqp", Observations: []model.ObservationRecord{obs}}, nil
+	}
+	obs.Completeness = "none"
+	if err != nil {
+		obs.Error = err.Error()
 	} else {
-		obs.Completeness = "none"
-		if err != nil {
-			obs.Error = err.Error()
-		}
+		obs.Error = "not amqp"
 	}
 	_ = obs.SetPayload(payload)
-	return []model.ObservationRecord{obs}, nil
+	return engine.CollectorResult{Outcome: engine.OutcomeNoMatch, Protocol: "amqp", Observations: []model.ObservationRecord{obs}}, nil
 }
 func min(a, b int) int {
 	if a < b {
