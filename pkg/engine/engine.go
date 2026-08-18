@@ -257,32 +257,85 @@ func (e *Engine) ScanTarget(ctx context.Context, raw string) (*ScanResult, error
 }
 
 // ScanResolved scans every address on target, keeping Hostname for SNI/Host.
+// Discovery and enumeration run across all addresses before adaptive work so
+// a shared target budget cannot starve later A/AAAA records.
 func (e *Engine) ScanResolved(ctx context.Context, target model.Target) (*ScanResult, error) {
 	if len(target.Addresses) == 0 {
 		return nil, fmt.Errorf("no addresses for %q", target.Input)
 	}
+	logicalID := "asset:" + target.Input
 	if len(target.Addresses) == 1 {
 		return e.scanAddress(ctx, target, target.Addresses[0], nil)
 	}
-	merged := &model.Asset{ID: "asset:" + target.Input}
-	if target.Hostname != "" {
-		merged.Hostnames = []string{target.Hostname}
+
+	type addrWork struct {
+		target model.Target
+		asset  *model.Asset
 	}
-	shared := e.newScanState("asset:" + target.Input)
+	works := make([]addrWork, 0, len(target.Addresses))
 	for _, addr := range target.Addresses {
 		one := target
 		one.Addresses = []model.Address{addr}
-		res, err := e.scanAddress(ctx, one, addr, shared)
-		if err != nil {
+		asset := model.NewAssetFromIP(addr.IP)
+		if target.Hostname != "" {
+			asset.Hostnames = []string{target.Hostname}
+		}
+		works = append(works, addrWork{target: one, asset: asset})
+	}
+
+	shared := e.newScanState(logicalID)
+	merged := &model.Asset{ID: logicalID}
+	if target.Hostname != "" {
+		merged.Hostnames = []string{target.Hostname}
+	}
+
+	for i := range works {
+		if err := e.runTasks(ctx, e.planner.PlanDiscovery(works[i].asset, &works[i].target, shared), works[i].asset, &works[i].target, shared); err != nil {
 			return nil, err
 		}
-		mergeAsset(merged, res.Asset)
+	}
+	for i := range works {
+		if err := e.runTasks(ctx, e.planner.PlanEnumeration(works[i].asset, &works[i].target, shared), works[i].asset, &works[i].target, shared); err != nil {
+			return nil, err
+		}
+	}
+
+	const maxPasses = 32
+	for pass := 0; pass < maxPasses; pass++ {
+		if !e.budgetRemaining(shared) {
+			break
+		}
+		progress := false
+		for i := range works {
+			if !e.budgetRemaining(shared) {
+				break
+			}
+			tasks := e.planner.Next(works[i].asset, shared)
+			if len(tasks) == 0 {
+				continue
+			}
+			progress = true
+			if err := e.runTasks(ctx, tasks, works[i].asset, &works[i].target, shared); err != nil {
+				return nil, err
+			}
+			e.applyFingerprints(works[i].asset)
+		}
+		if !progress {
+			break
+		}
+	}
+
+	for i := range works {
+		e.applyFingerprints(works[i].asset)
+		e.markEndpointExecution(ctx, works[i].asset, shared)
+		mergeAsset(merged, works[i].asset)
 	}
 	e.applyFingerprints(merged)
 	e.recordScanMetrics(merged, shared)
 	e.mu.Lock()
 	e.syncMeterLocked(shared)
 	e.mu.Unlock()
+	shared.AssetID = logicalID
 	return &ScanResult{Asset: merged, State: shared}, nil
 }
 
@@ -310,8 +363,6 @@ func (e *Engine) scanAddress(ctx context.Context, target model.Target, addr mode
 	state := shared
 	if state == nil {
 		state = e.newScanState(asset.ID)
-	} else {
-		state.AssetID = asset.ID
 	}
 
 	if err := e.runTasks(ctx, e.planner.PlanDiscovery(asset, &target, state), asset, &target, state); err != nil {
@@ -337,6 +388,7 @@ func (e *Engine) scanAddress(ctx context.Context, target model.Target, addr mode
 	}
 
 	e.applyFingerprints(asset)
+	e.markEndpointExecution(ctx, asset, state)
 	if shared == nil {
 		e.recordScanMetrics(asset, state)
 		e.mu.Lock()
@@ -344,6 +396,47 @@ func (e *Engine) scanAddress(ctx context.Context, target model.Target, addr mode
 		e.mu.Unlock()
 	}
 	return &ScanResult{Asset: asset, State: state}, nil
+}
+
+func setEndpointExecution(ep *model.Endpoint, exec model.EndpointExecution) {
+	if ep == nil || exec == "" {
+		return
+	}
+	switch ep.Execution {
+	case model.ExecutionAttempted, model.ExecutionTimedOut:
+		if exec == model.ExecutionTimedOut {
+			ep.Execution = exec
+		}
+		return
+	default:
+		ep.Execution = exec
+	}
+}
+
+func (e *Engine) markEndpointExecution(ctx context.Context, asset *model.Asset, state *ScanState) {
+	if asset == nil {
+		return
+	}
+	budgetLeft := e.budgetRemaining(state)
+	for i := range asset.Endpoints {
+		ep := &asset.Endpoints[i]
+		if ep.Execution != "" {
+			continue
+		}
+		classified := state != nil && state.HasCollectorForEndpoint(ep.Key())
+		switch {
+		case errors.Is(ctx.Err(), context.DeadlineExceeded):
+			ep.Execution = model.ExecutionTimedOut
+		case ctx.Err() != nil:
+			ep.Execution = model.ExecutionNotAttemptedCancelled
+		case classified, ep.State == model.EndpointOpen, ep.State == model.EndpointClosed, ep.State == model.EndpointFiltered:
+			ep.Execution = model.ExecutionAttempted
+		case !budgetLeft && classifiableEndpoint(ep):
+			ep.Execution = model.ExecutionNotAttemptedBudget
+		default:
+			ep.Execution = model.ExecutionAttempted
+		}
+	}
 }
 
 func mergeAsset(dst, src *model.Asset) {
@@ -445,6 +538,7 @@ func (e *Engine) runTasks(ctx context.Context, tasks []Task, asset *model.Asset,
 	})
 	return e.scheduler.RunAll(ctx, tasks, func(ctx context.Context, task Task) error {
 		if !e.budgetRemaining(state) {
+			setEndpointExecution(task.Endpoint, model.ExecutionNotAttemptedBudget)
 			return nil
 		}
 		err := e.runTask(ctx, task, asset, state)
@@ -515,6 +609,7 @@ func (e *Engine) runTask(ctx context.Context, task Task, asset *model.Asset, sta
 	e.syncMeterLocked(state)
 	if !state.Budget.Remaining() {
 		e.mu.Unlock()
+		setEndpointExecution(task.Endpoint, model.ExecutionNotAttemptedBudget)
 		return nil
 	}
 	state.Budget.ConsumeProbe()
@@ -531,12 +626,18 @@ func (e *Engine) runTask(ctx context.Context, task Task, asset *model.Asset, sta
 	}
 	if task.Endpoint != nil {
 		state.NoteEndpointRequest(task.Endpoint.Key())
+		switch {
+		case errors.Is(ctx.Err(), context.DeadlineExceeded) || result.Outcome == OutcomeTimeout:
+			setEndpointExecution(task.Endpoint, model.ExecutionTimedOut)
+		case errors.Is(ctx.Err(), context.Canceled):
+			setEndpointExecution(task.Endpoint, model.ExecutionNotAttemptedCancelled)
+		default:
+			setEndpointExecution(task.Endpoint, model.ExecutionAttempted)
+		}
 	}
-	key := task.CollectorID
+	key := hostCollectorKey(task.CollectorID, task.Target)
 	if task.Endpoint != nil {
 		key = task.CollectorID + ":" + task.Endpoint.Key()
-	} else {
-		key = hostCollectorKey(task.CollectorID, task.Target)
 	}
 	state.MarkComplete(key)
 	if err != nil && result.Outcome == "" {

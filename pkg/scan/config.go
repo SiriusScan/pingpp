@@ -1,6 +1,7 @@
 package scan
 
 import (
+	"errors"
 	"fmt"
 	"time"
 
@@ -9,6 +10,13 @@ import (
 	"github.com/SiriusScan/ping++/pkg/metrics"
 	"github.com/SiriusScan/ping++/pkg/transport"
 )
+
+// ErrInvalidConfig marks user/config mistakes that the CLI must exit 2 for.
+var ErrInvalidConfig = errors.New("invalid scan configuration")
+
+func invalidConfig(format string, args ...any) error {
+	return fmt.Errorf("%w: "+format, append([]any{ErrInvalidConfig}, args...)...)
+}
 
 // Config is the canonical public scan configuration. Compile it to
 // engine.Options + Profile; do not treat engine.Options as the CLI API.
@@ -28,6 +36,9 @@ type Config struct {
 	artifactStore      artifact.Store
 	metrics            *metrics.Counters
 	networkLimiter     *transport.Limiter
+	// probeTypes is a private Sirius/legacy compatibility filter. Profiles
+	// are the supported selector; this field is not part of the public Config API.
+	probeTypes []string
 }
 
 // ProfileConfig selects a named engine profile.
@@ -101,7 +112,7 @@ func (c Config) Compile() (engine.Options, error) {
 		name = engine.ProfileDefault
 	}
 	if !engine.KnownProfile(name) {
-		return engine.Options{}, fmt.Errorf("unknown profile %q", name)
+		return engine.Options{}, invalidConfig("unknown profile %q", name)
 	}
 	if err := validatePortSelection("tcp", c.Ports.TCP); err != nil {
 		return engine.Options{}, err
@@ -110,22 +121,22 @@ func (c Config) Compile() (engine.Options, error) {
 		return engine.Options{}, err
 	}
 	if c.Limits.TargetTimeout < 0 {
-		return engine.Options{}, fmt.Errorf("invalid target timeout %s", c.Limits.TargetTimeout)
+		return engine.Options{}, invalidConfig("invalid target timeout %s", c.Limits.TargetTimeout)
 	}
 	if c.Limits.ProbeTimeout < 0 {
-		return engine.Options{}, fmt.Errorf("invalid probe timeout %s", c.Limits.ProbeTimeout)
+		return engine.Options{}, invalidConfig("invalid probe timeout %s", c.Limits.ProbeTimeout)
 	}
 	if c.Limits.HTTPTimeout < 0 {
-		return engine.Options{}, fmt.Errorf("invalid http timeout %s", c.Limits.HTTPTimeout)
+		return engine.Options{}, invalidConfig("invalid http timeout %s", c.Limits.HTTPTimeout)
 	}
 	if c.Limits.RatePerSecond < 0 {
-		return engine.Options{}, fmt.Errorf("invalid rate %d", c.Limits.RatePerSecond)
+		return engine.Options{}, invalidConfig("invalid rate %d", c.Limits.RatePerSecond)
 	}
 	if c.Limits.HostConcurrency < 0 {
-		return engine.Options{}, fmt.Errorf("invalid host concurrency %d", c.Limits.HostConcurrency)
+		return engine.Options{}, invalidConfig("invalid host concurrency %d", c.Limits.HostConcurrency)
 	}
 	if c.Limits.PerHostConcurrency < 0 {
-		return engine.Options{}, fmt.Errorf("invalid per-host concurrency %d", c.Limits.PerHostConcurrency)
+		return engine.Options{}, invalidConfig("invalid per-host concurrency %d", c.Limits.PerHostConcurrency)
 	}
 
 	opts := engine.Options{
@@ -146,6 +157,7 @@ func (c Config) Compile() (engine.Options, error) {
 		FingerprintDirs:      append([]string(nil), c.Fingerprints.ExtraDirs...),
 		Registry:             c.Registry,
 		UnmatchedBannerFile:  c.Unknowns.BannerFile,
+		ProbeTypes:           append([]string(nil), c.probeTypes...),
 	}
 	return opts, nil
 }
@@ -153,7 +165,7 @@ func (c Config) Compile() (engine.Options, error) {
 func validatePortSelection(kind string, sel PortSelection) error {
 	for _, p := range sel.Ports {
 		if p == 0 {
-			return fmt.Errorf("invalid %s port 0", kind)
+			return invalidConfig("invalid %s port 0", kind)
 		}
 	}
 	if !sel.Override && len(sel.Ports) > 0 {

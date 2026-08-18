@@ -58,3 +58,39 @@ func TestScanTESTNETFast(t *testing.T) {
 		t.Fatalf("stdout=%s stderr=%s", stdout.String(), stderr.String())
 	}
 }
+
+func TestScanHelpExitZero(t *testing.T) {
+	var stdout, stderr bytes.Buffer
+	code := cli.Run([]string{"scan", "--help"}, &stdout, &stderr)
+	if code != 0 {
+		t.Fatalf("code=%d stderr=%s", code, stderr.String())
+	}
+	if !strings.Contains(stdout.String(), "Usage:") {
+		t.Fatalf("stdout=%q", stdout.String())
+	}
+}
+
+func TestInvalidRateIsExitTwo(t *testing.T) {
+	var stdout, stderr bytes.Buffer
+	code := cli.Run([]string{"scan", "--rate", "-1", "-t", "192.0.2.1"}, &stdout, &stderr)
+	if code != 2 {
+		t.Fatalf("code=%d stderr=%s", code, stderr.String())
+	}
+}
+
+func TestRunTimeoutIsExitOne(t *testing.T) {
+	var stdout, stderr bytes.Buffer
+	code := cli.Run([]string{
+		"scan",
+		"--profile", "quick",
+		"--skip-discovery",
+		"--tcp-ports", "80",
+		"--udp-ports", "none",
+		"--run-timeout", "1ms",
+		"-t", "192.0.2.1",
+		"--format", "jsonl",
+	}, &stdout, &stderr)
+	if code != 1 {
+		t.Fatalf("code=%d stderr=%s stdout=%s", code, stderr.String(), stdout.String())
+	}
+}

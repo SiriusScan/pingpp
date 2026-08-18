@@ -2,6 +2,7 @@ package cli
 
 import (
 	"context"
+	"errors"
 	"flag"
 	"fmt"
 	"io"
@@ -115,8 +116,12 @@ func runScan(args []string, stdout, stderr io.Writer) int {
 	unmatched := fs.String("unmatched-banners", "", "unmatched banner JSONL path")
 	strict := fs.Bool("strict-input", false, "malformed file lines are fatal")
 
-	fs.Usage = func() { fmt.Fprint(stderr, usage) }
+	fs.SetOutput(stderr)
+	fs.Usage = func() { fmt.Fprint(stdout, usage) }
 	if err := fs.Parse(args); err != nil {
+		if errors.Is(err, flag.ErrHelp) {
+			return 0
+		}
 		return 2
 	}
 	for _, a := range fs.Args() {
@@ -173,6 +178,9 @@ func runScan(args []string, stdout, stderr io.Writer) int {
 	session, err := scan.NewSession(cfg)
 	if err != nil {
 		fmt.Fprintf(stderr, "session: %v\n", err)
+		if errors.Is(err, scan.ErrInvalidConfig) {
+			return 2
+		}
 		return 1
 	}
 	defer func() { _ = session.Close() }()
@@ -217,7 +225,25 @@ func runScan(args []string, stdout, stderr io.Writer) int {
 		err = flushErr
 	}
 	fmt.Fprintf(stderr, "summary targets=%d completed=%d failed=%d cancelled=%d\n", summary.Targets, summary.Completed, summary.Failed, summary.Cancelled)
-	if ctx.Err() == context.Canceled {
+	return exitStatus(ctx, err, summary, stderr)
+}
+
+func exitStatus(ctx context.Context, err error, summary runner.Summary, stderr io.Writer) int {
+	var runErr *runner.RunError
+	if errors.As(err, &runErr) && runErr.Kind == runner.ErrKindInput {
+		fmt.Fprintf(stderr, "%v\n", err)
+		return 2
+	}
+	if errors.Is(err, scan.ErrInvalidConfig) {
+		return 2
+	}
+	if errors.Is(ctx.Err(), context.DeadlineExceeded) || errors.Is(err, context.DeadlineExceeded) {
+		if err != nil {
+			fmt.Fprintf(stderr, "%v\n", err)
+		}
+		return 1
+	}
+	if errors.Is(ctx.Err(), context.Canceled) || errors.Is(err, context.Canceled) {
 		return 130
 	}
 	if err != nil {

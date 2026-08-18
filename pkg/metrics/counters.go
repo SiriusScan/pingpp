@@ -22,6 +22,7 @@ type Counters struct {
 	UnmatchedBanners   int64
 	unmatched          []string
 	bannerSink         *BannerSink
+	bannerSinkErr      error
 }
 
 // RecordCollector records that a collector finished with the given outcome.
@@ -100,7 +101,11 @@ func (c *Counters) RecordUnmatchedBanner(banner string) {
 	sink := c.bannerSink
 	c.mu.Unlock()
 	if sink != nil {
-		_ = sink.WriteBanner(banner)
+		if err := sink.WriteBanner(banner); err != nil {
+			c.mu.Lock()
+			c.bannerSinkErr = err
+			c.mu.Unlock()
+		}
 	}
 }
 
@@ -135,11 +140,15 @@ func (c *Counters) Close() error {
 	c.mu.Lock()
 	sink := c.bannerSink
 	c.bannerSink = nil
+	prev := c.bannerSinkErr
 	c.mu.Unlock()
 	if sink == nil {
-		return nil
+		return prev
 	}
-	return sink.Close()
+	if err := sink.Close(); err != nil {
+		return err
+	}
+	return prev
 }
 
 // Snapshot returns a copy of counters for reporting.

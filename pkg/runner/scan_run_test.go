@@ -134,6 +134,48 @@ func TestScanRunResolutionIsNotFailed(t *testing.T) {
 	}
 }
 
+func TestScanRunInputErrorIsRunError(t *testing.T) {
+	src, err := runner.NewTargetSource(runner.WithTargets("10.0.0.0/8"), runner.WithMaxTargets(1000))
+	if err != nil {
+		t.Fatal(err)
+	}
+	run, err := runner.NewScanRun(runner.ScanRunOptions{
+		Scanner: &runner.ConcurrentScanner{},
+		Targets: src,
+		Sink:    runner.NopSink{},
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	_, err = run.Run(context.Background())
+	var runErr *runner.RunError
+	if !errors.As(err, &runErr) || runErr.Kind != runner.ErrKindInput {
+		t.Fatalf("err=%v want RunError input", err)
+	}
+}
+
+func TestScanRunDeadlineExceeded(t *testing.T) {
+	src, err := runner.NewTargetSource(runner.WithTargets("192.0.2.1", "192.0.2.2"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	ctx, cancel := context.WithTimeout(context.Background(), time.Millisecond)
+	defer cancel()
+	run, err := runner.NewScanRun(runner.ScanRunOptions{
+		Scanner:         &runner.ConcurrentScanner{Delay: time.Second},
+		Targets:         src,
+		HostConcurrency: 2,
+		Sink:            runner.NopSink{},
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	_, err = run.Run(ctx)
+	if !errors.Is(err, context.DeadlineExceeded) {
+		t.Fatalf("err=%v want deadline exceeded", err)
+	}
+}
+
 func TestScanRunCancel(t *testing.T) {
 	src, err := runner.NewTargetSource(runner.WithTargets("192.0.2.1", "192.0.2.2"))
 	if err != nil {

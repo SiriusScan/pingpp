@@ -47,6 +47,33 @@ type Event struct {
 	Message string
 }
 
+// RunError is a run-level failure. Input/config contract errors are Kind
+// ErrKindInput; operational failures use engine/output/internal.
+type RunError struct {
+	Kind string
+	Err  error
+}
+
+func (e *RunError) Error() string {
+	if e == nil {
+		return ""
+	}
+	if e.Err == nil {
+		return e.Kind
+	}
+	if e.Kind == "" {
+		return e.Err.Error()
+	}
+	return e.Kind + ": " + e.Err.Error()
+}
+
+func (e *RunError) Unwrap() error {
+	if e == nil {
+		return nil
+	}
+	return e.Err
+}
+
 // TargetError is a typed per-target failure.
 type TargetError struct {
 	Kind    string `json:"kind"`
@@ -88,6 +115,10 @@ type ScanRun struct {
 	failFast bool
 	sink     ResultSink
 	events   EventSink
+
+	ioMu   sync.Mutex
+	errMu  sync.Mutex
+	runErr error
 }
 
 // ScanRunOptions configures ScanRun.
@@ -149,7 +180,6 @@ func (r *ScanRun) Run(ctx context.Context) (Summary, error) {
 		failOnce.Do(cancel)
 	}
 
-	var producerErr error
 	var producerWG sync.WaitGroup
 	producerWG.Add(1)
 	go func() {
@@ -175,8 +205,9 @@ func (r *ScanRun) Run(ctx context.Context) (Summary, error) {
 					}
 					mu.Unlock()
 					r.emit(Event{Kind: "target_failed", Target: spec, Message: err.Error()})
-					if werr := r.sink.WriteResult(ctx, tr); werr != nil {
-						producerErr = fmt.Errorf("%w: %v", werr, err)
+					r.setRunError(&RunError{Kind: ErrKindInput, Err: err})
+					if werr := r.writeResult(ctx, tr); werr != nil {
+						r.setRunError(&RunError{Kind: ErrKindOutput, Err: werr})
 						fail()
 						return
 					}
@@ -186,7 +217,7 @@ func (r *ScanRun) Run(ctx context.Context) (Summary, error) {
 					}
 					continue
 				}
-				producerErr = err
+				r.setRunError(err)
 				fail()
 				return
 			}
@@ -234,11 +265,11 @@ func (r *ScanRun) Run(ctx context.Context) (Summary, error) {
 					}
 				}
 				mu.Unlock()
-				if werr := r.sink.WriteResult(ctx, tr); werr != nil {
+				if werr := r.writeResult(ctx, tr); werr != nil {
 					mu.Lock()
-					producerErr = werr
 					summary.Failed++
 					mu.Unlock()
+					r.setRunError(&RunError{Kind: ErrKindOutput, Err: werr})
 					fail()
 					return
 				}
@@ -254,10 +285,13 @@ func (r *ScanRun) Run(ctx context.Context) (Summary, error) {
 	producerWG.Wait()
 
 	r.emit(Event{Kind: "run_completed"})
-	if producerErr != nil && !errors.Is(producerErr, context.Canceled) {
-		return summary, producerErr
+	if runErr := r.currentRunError(); runErr != nil && !errors.Is(runErr, context.Canceled) {
+		return summary, runErr
 	}
-	if ctx.Err() != nil && summary.Failed == 0 && summary.Cancelled > 0 {
+	if errors.Is(ctx.Err(), context.DeadlineExceeded) {
+		return summary, ctx.Err()
+	}
+	if ctx.Err() != nil && (summary.Failed == 0 && summary.Cancelled > 0 || errors.Is(ctx.Err(), context.Canceled)) {
 		return summary, ctx.Err()
 	}
 	return summary, nil
@@ -300,7 +334,32 @@ func (r *ScanRun) emit(ev Event) {
 	if r.events == nil {
 		return
 	}
+	r.ioMu.Lock()
+	defer r.ioMu.Unlock()
 	r.events.Event(ev)
+}
+
+func (r *ScanRun) writeResult(ctx context.Context, tr TargetResult) error {
+	r.ioMu.Lock()
+	defer r.ioMu.Unlock()
+	return r.sink.WriteResult(ctx, tr)
+}
+
+func (r *ScanRun) setRunError(err error) {
+	if err == nil {
+		return
+	}
+	r.errMu.Lock()
+	defer r.errMu.Unlock()
+	if r.runErr == nil {
+		r.runErr = err
+	}
+}
+
+func (r *ScanRun) currentRunError() error {
+	r.errMu.Lock()
+	defer r.errMu.Unlock()
+	return r.runErr
 }
 
 // CollectingSink stores results for tests.

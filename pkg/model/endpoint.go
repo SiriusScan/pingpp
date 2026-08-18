@@ -34,6 +34,17 @@ const (
 	EndpointUnknown    EndpointState = "unknown"
 )
 
+// EndpointExecution is scan-plan completeness, independent of observed
+// network state. A budget limit means we do not know because we did not ask.
+type EndpointExecution string
+
+const (
+	ExecutionAttempted             EndpointExecution = "attempted"
+	ExecutionNotAttemptedBudget    EndpointExecution = "not_attempted_budget"
+	ExecutionNotAttemptedCancelled EndpointExecution = "not_attempted_cancelled"
+	ExecutionTimedOut              EndpointExecution = "timed_out"
+)
+
 // Valid reports whether s is a known endpoint state.
 func (s EndpointState) Valid() bool {
 	switch s {
@@ -46,10 +57,11 @@ func (s EndpointState) Valid() bool {
 
 // Endpoint is an address + transport + port with observed state.
 type Endpoint struct {
-	Address   string        `json:"address"`
-	Port      uint16        `json:"port"`
-	Transport Transport     `json:"transport"`
-	State     EndpointState `json:"state"`
+	Address   string            `json:"address"`
+	Port      uint16            `json:"port"`
+	Transport Transport         `json:"transport"`
+	State     EndpointState     `json:"state"`
+	Execution EndpointExecution `json:"execution,omitempty"`
 }
 
 // Key returns a stable identifier for the endpoint.

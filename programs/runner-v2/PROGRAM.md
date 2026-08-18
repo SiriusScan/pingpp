@@ -157,7 +157,8 @@ Tasks:
 
 - [x] `pingpp.scan/v1` + text/json/jsonl
 - [x] `cmd/pingpp` scan + version
-- [ ] Signals, exit codes, introspection commands
+- [x] Signals, exit codes (input/config 2, run timeout 1, SIGINT 130, NXDOMAIN 0, `scan --help` 0)
+- [ ] Introspection commands
 
 ## Stage 6: Legacy + release (C15–C16)
 
@@ -192,5 +193,5 @@ acceptance_criteria:
   - C9 ScanRun streams TargetSource through a bounded worker pool
   - cmd/pingpp scan + version exist; .gitignore no longer swallows cmd/pingpp
   - Session.Scan is concurrent via per-target Engine sharing fingerprints
-next_action: C13 signals/progress polish and C14 introspection; C15 README/legacy quarantine later.
+next_action: C14 introspection commands; C15 README/legacy quarantine later. Core engine follow-ups remain HTTP pinned-IP redirects, per-host transport semaphore, and IPv6 filtered-vs-starved matrix.
 ```

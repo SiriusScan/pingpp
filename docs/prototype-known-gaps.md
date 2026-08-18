@@ -37,7 +37,9 @@ Reviewed prototype commit: `bfef5cb`.
 
 ## Current head
 
-This commit — production `cmd/pingpp` over Runner V2; live-scan fixes (HTTP timeout/hostname URL, concurrent Session, probe-budget cap).
+This commit — ProbeTypes compatibility, stage-fair multi-address scans,
+endpoint execution completeness, C13 typed exit codes, and responsive
+unclassified findings in default text.
 
 Canonical path:
 
@@ -353,22 +355,30 @@ Acceptance tests:
 Known debt:
 - `fingerprintLegacyRunner` remains behind `UseLegacyRunner` only.
 - `runner.Options` / `engine.Options` / Profile remain separate vocabularies.
+- Sirius `ProbeTypes` stay a private `scan.Config` compatibility field; they are
+  not part of the public Config API. Profiles are the supported selector.
 
 ---
 
 ## R17 IPv6 / multi-address
 
-Status: COMPLETE for shared logical-scan budget and merged protocol state
+Status: COMPLETE for shared logical-scan budget, merged protocol state, and
+stage-fair multi-address execution
 
-Commit: `9403a4d` ScanResolved; this commit shares Meter/Budget and merges Matched/RuledOut/reasons
+Commit: this commit — D0/D1 across all addresses, then round-robin classify/enrich;
+logical `State.AssetID` is no longer overwritten by per-IP IDs
 
 Acceptance tests:
 - `TestScanResolvedAllAddresses` — two resolved IPs both appear; hostname preserved; per-address complete keys
 - `TestScanResolvedSharesNetworkBudget` — two addresses share one `MaxNetworkOps`
+- `TestScanResolvedStageFairnessAndLogicalAssetID` — both addresses get enumeration before adaptive probes can exhaust the shared budget; `AssetID` stays `asset:<hostname>`
 - `TestClassificationPassesHostnameTarget` — hostname survives into collectors for SNI/Host
+- `TestConfigFromScanOptionsPreservesProbeTypes` — Sirius `icmp,tcp` still filters protocol collectors through `scan.Config`
 
 Known debt:
-- none for the multi-address bar. `net.JoinHostPort` on IPv6 literals was already true in `pkg/transport`.
+- HTTP still dials the resolved IP in the request URL and rewrites the observation hostname (redirect/SNI follow-up).
+- True target-wide `MaxConcurrentPerHost` at transport I/O is still scheduler-task scoped.
+- IPv6 filtered vs budget-starved vs no-route still needs a dedicated matrix beyond the fairness unit test.
 
 ---
 
@@ -398,8 +408,13 @@ Known debt:
 Engine R1–R18 stays the scanning intelligence. Production `cmd/pingpp` is a
 thin CLI over Runner V2 (`pkg/runner.ScanRun`) → `scan.Session` → engine.
 C9–C12 landed on this branch (`scan`, `version`, text/json/jsonl). Do not
-grow legacy `pkg/runner.Result`. C13–C16 (SIGINT polish, collectors/profiles
-commands, README rewrite, full-profile stress) remain.
+grow legacy `pkg/runner.Result`. C13 exit-code/run-error work landed with
+this commit; C14–C16 (introspection commands, README rewrite, full-profile
+stress) remain.
+
+Endpoint `Execution` distinguishes attempted vs `not_attempted_budget` /
+`not_attempted_cancelled` / `timed_out` so a budget stop is not network
+`unknown`. Default text now prints responsive unclassified endpoints.
 
 ---
 

@@ -178,5 +178,6 @@ func ConfigFromScanOptions(opts ScanOptions) Config {
 	cfg.metrics = opts.Metrics
 	cfg.networkLimiter = opts.NetworkLimiter
 	cfg.Unknowns.BannerFile = opts.UnmatchedBannerFile
+	cfg.probeTypes = append([]string(nil), opts.ProbeTypes...)
 	return cfg
 }

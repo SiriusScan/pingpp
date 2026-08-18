@@ -48,6 +48,10 @@ func TestEndpointNoBoolOpen(t *testing.T) {
 	if ep.Key() != "192.0.2.10/tcp/443" {
 		t.Fatalf("Key=%q", ep.Key())
 	}
+	ep.Execution = ExecutionNotAttemptedBudget
+	if ep.Execution != ExecutionNotAttemptedBudget {
+		t.Fatalf("Execution=%q", ep.Execution)
+	}
 }
 
 func TestAssetAddEndpointUpserts(t *testing.T) {

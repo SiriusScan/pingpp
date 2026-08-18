@@ -4,6 +4,7 @@ import (
 	"context"
 	"net"
 	"net/http"
+	"sync"
 	"sync/atomic"
 	"testing"
 	"time"
@@ -508,6 +509,73 @@ func TestScanResolvedSharesNetworkBudget(t *testing.T) {
 	if res.State.Budget.NetworkOps > 1 {
 		t.Fatalf("shared budget exceeded: ops=%d", res.State.Budget.NetworkOps)
 	}
+}
+
+func TestScanResolvedStageFairnessAndLogicalAssetID(t *testing.T) {
+	httpCol := &ipCountingCollector{id: "collect.http"}
+	reg := engine.NewRegistry()
+	reg.MustRegister("enumerate.tcp", func(cfg engine.Config) (engine.Collector, error) {
+		return &openPortEnumerator{port: 80}, nil
+	})
+	reg.MustRegister("collect.http", func(cfg engine.Config) (engine.Collector, error) {
+		return httpCol, nil
+	})
+	eng, err := engine.NewEngine(engine.Options{
+		Profile:          engine.ProfileQuick,
+		SkipDiscovery:    true,
+		TCPPorts:         []uint16{80},
+		RatePerSecond:    1000,
+		Registry:         reg,
+		Fingerprints:     stubMatcher{},
+		MaxProbesPerHost: 3,
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+	defer cancel()
+	target := model.NewTargetHostname("multi.test", "192.0.2.10", "192.0.2.11")
+	res, err := eng.ScanResolved(ctx, target)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if res.State.AssetID != "asset:multi.test" {
+		t.Fatalf("logical AssetID=%q", res.State.AssetID)
+	}
+	for _, ip := range []string{"192.0.2.10", "192.0.2.11"} {
+		if !res.State.IsComplete("enumerate.tcp:" + ip) {
+			t.Fatalf("stage fairness: missing enumeration for %s in %+v", ip, res.State.Completed)
+		}
+	}
+	var sawBudgetSkip bool
+	for _, ep := range res.Asset.Endpoints {
+		if ep.Execution == model.ExecutionNotAttemptedBudget {
+			sawBudgetSkip = true
+		}
+	}
+	if !sawBudgetSkip {
+		t.Fatalf("expected not_attempted_budget after shared probe budget, endpoints=%+v httpIPs=%v", res.Asset.Endpoints, httpCol.ips)
+	}
+}
+
+type ipCountingCollector struct {
+	id  string
+	mu  sync.Mutex
+	ips []string
+}
+
+func (c *ipCountingCollector) Metadata() engine.CollectorMetadata {
+	return engine.CollectorMetadata{
+		ID: c.id, Stage: engine.StageClassify, Priority: 50, Cost: 1,
+		DefaultPorts: []uint16{80}, Transports: []model.Transport{model.TransportTCP},
+	}
+}
+
+func (c *ipCountingCollector) Run(_ context.Context, in engine.CollectorInput) ([]model.ObservationRecord, error) {
+	c.mu.Lock()
+	c.ips = append(c.ips, in.PrimaryIP())
+	c.mu.Unlock()
+	return nil, nil
 }
 
 func TestCollectorPanicIsInternalError(t *testing.T) {

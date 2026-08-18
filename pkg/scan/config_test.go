@@ -1,6 +1,8 @@
 package scan_test
 
 import (
+	"errors"
+	"strings"
 	"testing"
 	"time"
 
@@ -137,8 +139,40 @@ func TestConfigRejectsInvalidValues(t *testing.T) {
 		cfg.Limits.ProbeTimeout = -time.Second
 		if _, err := cfg.Compile(); err == nil {
 			t.Fatal("expected invalid timeout")
+		} else if !errors.Is(err, scan.ErrInvalidConfig) {
+			t.Fatalf("err=%v want ErrInvalidConfig", err)
 		}
 	})
+	t.Run("rate", func(t *testing.T) {
+		cfg := scan.DefaultConfig()
+		cfg.Limits.RatePerSecond = -1
+		if _, err := cfg.Compile(); err == nil {
+			t.Fatal("expected invalid rate")
+		} else if !errors.Is(err, scan.ErrInvalidConfig) {
+			t.Fatalf("err=%v want ErrInvalidConfig", err)
+		}
+	})
+}
+
+func TestConfigFromScanOptionsPreservesProbeTypes(t *testing.T) {
+	cfg := scan.ConfigFromScanOptions(scan.ScanOptions{
+		Options: engine.Options{Profile: engine.ProfileQuick, ProbeTypes: []string{"icmp", "tcp"}},
+	})
+	opts, err := cfg.Compile()
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(opts.ProbeTypes) != 2 || opts.ProbeTypes[0] != "icmp" || opts.ProbeTypes[1] != "tcp" {
+		t.Fatalf("ProbeTypes=%v", opts.ProbeTypes)
+	}
+	prof := engine.PrepareProfile(opts)
+	allow := strings.Join(prof.AllowCollectors, ",")
+	if strings.Contains(allow, "collect.http") || strings.Contains(allow, "collect.ssh") {
+		t.Fatalf("icmp+tcp must not enable protocol collectors: %v", prof.AllowCollectors)
+	}
+	if !strings.Contains(allow, "enumerate.tcp") {
+		t.Fatalf("tcp probe type should allow enumerate.tcp: %v", prof.AllowCollectors)
+	}
 }
 
 func TestConfigCompilesBannerFile(t *testing.T) {

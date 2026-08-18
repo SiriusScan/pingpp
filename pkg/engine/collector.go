@@ -9,6 +9,7 @@ import (
 	"context"
 	"fmt"
 	"sort"
+	"strings"
 	"sync"
 	"time"
 
@@ -129,6 +130,22 @@ func (s *ScanState) IsComplete(collectorID string) bool {
 	s.mu.Lock()
 	defer s.mu.Unlock()
 	return s.Completed[collectorID]
+}
+
+// HasCollectorForEndpoint reports whether any collector completed for epKey.
+func (s *ScanState) HasCollectorForEndpoint(epKey string) bool {
+	if s == nil || epKey == "" {
+		return false
+	}
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	suffix := ":" + epKey
+	for k, ok := range s.Completed {
+		if ok && strings.HasSuffix(k, suffix) {
+			return true
+		}
+	}
+	return false
 }
 
 // NoteProtocol records a positive or negative protocol classification.

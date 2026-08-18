@@ -35,4 +35,22 @@ func TestDocumentSchemaAndText(t *testing.T) {
 	}
 }
 
+func TestDocumentShowsResponsiveUnclassified(t *testing.T) {
+	asset := model.NewAssetFromIP("34.160.111.145")
+	ep := model.NewEndpoint("34.160.111.145", 80, model.TransportTCP, model.EndpointResponsive)
+	asset.AddEndpoint(ep)
+	doc := output.NewDocument("quick", runner.TargetResult{
+		Target:  runner.TargetSpec{Input: "neverssl.com", Kind: runner.TargetHostname},
+		Result:  &engine.ScanResult{Asset: asset, State: &engine.ScanState{AssetID: "asset:neverssl.com"}},
+		Elapsed: time.Millisecond,
+	})
+	text := doc.Text()
+	if !strings.Contains(text, "responsive") || !strings.Contains(text, "protocol unknown") {
+		t.Fatalf("text=%s", text)
+	}
+	if !strings.Contains(text, "80") {
+		t.Fatalf("missing port in %s", text)
+	}
+}
+
 func ptr[T any](v T) *T { return &v }

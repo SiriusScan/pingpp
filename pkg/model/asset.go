@@ -65,13 +65,30 @@ func (a *Asset) AddEndpoint(ep Endpoint) {
 	for i := range a.Endpoints {
 		if a.Endpoints[i].Equal(ep) {
 			if a.Endpoints[i].State == EndpointOpen && ep.State == EndpointResponsive {
+				mergeEndpointExecution(&a.Endpoints[i], ep.Execution)
 				return
 			}
 			a.Endpoints[i].State = ep.State
+			mergeEndpointExecution(&a.Endpoints[i], ep.Execution)
 			return
 		}
 	}
 	a.Endpoints = append(a.Endpoints, ep)
+}
+
+func mergeEndpointExecution(dst *Endpoint, incoming EndpointExecution) {
+	if dst == nil || incoming == "" {
+		return
+	}
+	switch dst.Execution {
+	case ExecutionAttempted, ExecutionTimedOut:
+		if incoming == ExecutionTimedOut {
+			dst.Execution = incoming
+		}
+		return
+	default:
+		dst.Execution = incoming
+	}
 }
 
 // AddObservation appends an observation record.

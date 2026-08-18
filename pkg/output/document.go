@@ -191,7 +191,11 @@ func (d Document) Text() string {
 		}
 	}
 	for _, ep := range eps {
-		fmt.Fprintf(&b, "  %s/%-5d %-12s %s\n", ep.Transport, ep.Port, ep.State, ep.Address)
+		fmt.Fprintf(&b, "  %s/%-5d %-12s %s", ep.Transport, ep.Port, ep.State, ep.Address)
+		if ep.State == model.EndpointResponsive && len(claimsForEndpoint(d.Asset, ep)) == 0 && len(observationsForEndpoint(d.Asset, ep)) == 0 {
+			fmt.Fprintf(&b, "  protocol unknown")
+		}
+		fmt.Fprintln(&b)
 		writeClaimLines(&b, claimsForEndpoint(d.Asset, ep), "    ")
 		for _, line := range observationsForEndpoint(d.Asset, ep) {
 			fmt.Fprintf(&b, "    %s\n", line)
@@ -257,7 +261,11 @@ func (d Document) Verbose() string {
 func positiveEndpoints(asset *model.Asset) []model.Endpoint {
 	var out []model.Endpoint
 	for _, ep := range asset.Endpoints {
-		if ep.State == model.EndpointResponsive || ep.State == model.EndpointClosed || ep.State == model.EndpointFiltered {
+		if ep.State == model.EndpointClosed || ep.State == model.EndpointFiltered {
+			continue
+		}
+		if ep.State == model.EndpointResponsive {
+			out = append(out, ep)
 			continue
 		}
 		if ep.State == model.EndpointOpen || len(claimsForEndpoint(asset, ep)) > 0 || len(observationsForEndpoint(asset, ep)) > 0 {
