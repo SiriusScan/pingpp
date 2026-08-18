@@ -148,7 +148,24 @@ type scriptedCollector struct {
 }
 
 func (s *scriptedCollector) Metadata() engine.CollectorMetadata {
-	return engine.CollectorMetadata{ID: s.id, Stage: engine.StageCollect, Priority: 50, Cost: 1}
+	ports := []uint16{}
+	tr := []model.Transport{model.TransportTCP}
+	prio := 50
+	switch s.id {
+	case "collect.ssh":
+		ports, prio = []uint16{22}, 75
+	case "collect.http":
+		ports, prio = []uint16{80, 8080, 443, 8443}, 60
+	case "collect.tls":
+		ports, prio = []uint16{443, 8443}, 70
+	case "collect.mysql":
+		ports, prio = []uint16{3306}, 55
+	case "collect.banner":
+		prio = 20
+	case "collect.http.enrich":
+		prio = 10
+	}
+	return engine.CollectorMetadata{ID: s.id, Stage: engine.StageCollect, Priority: prio, Cost: 1, DefaultPorts: ports, Transports: tr}
 }
 
 func (s *scriptedCollector) Run(ctx context.Context, in engine.CollectorInput) ([]model.ObservationRecord, error) {

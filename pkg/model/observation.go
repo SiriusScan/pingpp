@@ -51,6 +51,7 @@ const (
 	ObservationSSH         = "ssh"
 	ObservationSMB         = "smb"
 	ObservationBanner      = "banner"
+	ObservationUDPEndpoint = "udp.endpoint"
 )
 
 // TCPEndpointObservation is the typed payload for TCP endpoint enumeration.
@@ -113,6 +114,20 @@ type FaviconObservation struct {
 	SHA256 string `json:"sha256,omitempty"`
 	MMH3   int32  `json:"mmh3,omitempty"`
 	URL    string `json:"url,omitempty"`
+}
+
+// BannerObservation is generic first-bytes evidence. It is not a protocol identity.
+type BannerObservation struct {
+	Text      string `json:"text,omitempty"`
+	Hex       string `json:"hex,omitempty"`
+	Length    int    `json:"length,omitempty"`
+	Truncated bool   `json:"truncated,omitempty"`
+}
+
+// UDPEndpointObservation is the typed payload for UDP endpoint enumeration.
+type UDPEndpointObservation struct {
+	State   EndpointState `json:"state"`
+	Latency string        `json:"latency,omitempty"`
 }
 
 // Redirect is one hop in an HTTP redirect chain.

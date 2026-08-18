@@ -1,6 +1,7 @@
 package engine
 
 import (
+	"sort"
 	"strings"
 	"sync"
 	"time"
@@ -82,7 +83,7 @@ func (p *Planner) PlanEnumeration(asset *model.Asset, target *model.Target, stat
 }
 
 // PlanClassification returns protocol classification tasks for open endpoints.
-// Port hints only affect Priority ordering via serviceHints — never identity.
+// Port metadata only affects Priority ordering — never identity.
 func (p *Planner) PlanClassification(asset *model.Asset, state *ScanState) []Task {
 	if asset == nil {
 		return nil
@@ -93,7 +94,7 @@ func (p *Planner) PlanClassification(asset *model.Asset, state *ScanState) []Tas
 		if ep.State != model.EndpointOpen && ep.State != model.EndpointResponsive {
 			continue
 		}
-		for _, id := range likelyCollectorsForPort(ep.Port, ep.Transport) {
+		for _, id := range p.likelyCollectorsForPort(ep.Port, ep.Transport) {
 			key := id + ":" + ep.Key()
 			if state != nil && state.IsComplete(key) {
 				continue
@@ -102,7 +103,7 @@ func (p *Planner) PlanClassification(asset *model.Asset, state *ScanState) []Tas
 				continue
 			}
 			md, _ := p.meta(id)
-			priority := md.Priority + portPriorBoost(ep.Port, id)
+			priority := md.Priority + p.portPriorBoost(ep, id)
 			tasks = append(tasks, Task{
 				CollectorID: id,
 				Asset:       asset,
@@ -146,7 +147,7 @@ func (p *Planner) nextForEndpoint(asset *model.Asset, ep *model.Endpoint, state 
 			return task, true
 		}
 	}
-	for _, id := range likelyCollectorsForPort(ep.Port, ep.Transport) {
+	for _, id := range p.likelyCollectorsForPort(ep.Port, ep.Transport) {
 		if state != nil && exclusiveProtocol(strings.TrimPrefix(id, "collect.")) && state.HasProtocol(key, "http") && id != "collect.http" && id != "collect.tls" && id != "collect.banner" {
 			continue
 		}
@@ -184,7 +185,7 @@ func (p *Planner) taskIfAvailable(asset *model.Asset, ep *model.Endpoint, state 
 		Asset:       asset,
 		Endpoint:    ep,
 		Stage:       stage,
-		Priority:    md.Priority + portPriorBoost(ep.Port, id),
+		Priority:    md.Priority + p.portPriorBoost(ep, id),
 	}, true
 }
 
@@ -225,21 +226,66 @@ func (p *Planner) meta(id string) (CollectorMetadata, bool) {
 	return CollectorMetadata{}, false
 }
 
-// likelyCollectorsForPort returns ordered candidate collector IDs.
-// These are priors; confirmation still requires protocol behavior.
-func likelyCollectorsForPort(port uint16, transport model.Transport) []string {
-	if transport != model.TransportTCP {
-		return nil
+// likelyCollectorsForPort returns ordered candidate collector IDs derived
+// from CollectorMetadata.DefaultPorts. Ports remain priors, never identity.
+func (p *Planner) likelyCollectorsForPort(port uint16, transport model.Transport) []string {
+	if p == nil || p.registry == nil {
+		return unknownSequence(transport)
 	}
-	hints := serviceHints[port]
-	if len(hints) == 0 {
-		return []string{"collect.banner"}
+	type ranked struct {
+		id       string
+		priority int
 	}
-	return append([]string(nil), hints...)
+	var matched []ranked
+	for _, md := range p.registry.Metadata() {
+		if skipAsPrior(md.ID) {
+			continue
+		}
+		if !metadataHasTransport(md, transport) {
+			continue
+		}
+		for _, dp := range md.DefaultPorts {
+			if dp == port {
+				matched = append(matched, ranked{id: md.ID, priority: md.Priority})
+				break
+			}
+		}
+	}
+	sort.SliceStable(matched, func(i, j int) bool {
+		if matched[i].priority != matched[j].priority {
+			return matched[i].priority > matched[j].priority
+		}
+		return matched[i].id < matched[j].id
+	})
+	var ids []string
+	seen := map[string]bool{}
+	for _, m := range matched {
+		ids = append(ids, m.id)
+		seen[m.id] = true
+	}
+	if len(ids) == 0 {
+		ids = p.filterRegistered(unknownSequence(transport))
+	} else if transport == model.TransportTCP && !seen["collect.banner"] && p.registry.Has("collect.banner") {
+		ids = append(ids, "collect.banner")
+	}
+	return ids
 }
 
-func portPriorBoost(port uint16, collectorID string) int {
-	hints := serviceHints[port]
+func (p *Planner) filterRegistered(ids []string) []string {
+	out := make([]string, 0, len(ids))
+	for _, id := range ids {
+		if p.registry.Has(id) {
+			out = append(out, id)
+		}
+	}
+	return out
+}
+
+func (p *Planner) portPriorBoost(ep *model.Endpoint, collectorID string) int {
+	if ep == nil {
+		return 0
+	}
+	hints := p.likelyCollectorsForPort(ep.Port, ep.Transport)
 	for i, h := range hints {
 		if h == collectorID {
 			return (len(hints) - i) * 10
@@ -248,34 +294,48 @@ func portPriorBoost(port uint16, collectorID string) int {
 	return 0
 }
 
-// serviceHints maps ports to ordered collector priors (not identity).
-var serviceHints = map[uint16][]string{
-	22:    {"collect.ssh", "collect.banner"},
-	80:    {"collect.http", "collect.banner"},
-	443:   {"collect.tls", "collect.http", "collect.banner"},
-	445:   {"collect.smb", "collect.banner"},
-	3389:  {"collect.rdp", "collect.banner"},
-	21:    {"collect.ftp", "collect.banner"},
-	25:    {"collect.smtp", "collect.banner"},
-	110:   {"collect.pop3", "collect.banner"},
-	143:   {"collect.imap", "collect.banner"},
-	23:    {"collect.telnet", "collect.banner"},
-	3306:  {"collect.mysql", "collect.banner"},
-	5432:  {"collect.postgres", "collect.banner"},
-	6379:  {"collect.redis", "collect.banner"},
-	27017: {"collect.mongodb", "collect.banner"},
-	11211: {"collect.memcached", "collect.banner"},
-	1433:  {"collect.mssql", "collect.banner"},
-	389:   {"collect.ldap", "collect.banner"},
-	636:   {"collect.ldap", "collect.tls", "collect.banner"},
-	53:    {"collect.dns"},
-	161:   {"collect.snmp"},
-	1080:  {"collect.socks", "collect.banner"},
-	1883:  {"collect.mqtt", "collect.banner"},
-	5900:  {"collect.vnc", "collect.banner"},
-	5672:  {"collect.amqp", "collect.banner"},
-	8080:  {"collect.http", "collect.tls", "collect.banner"},
-	8443:  {"collect.tls", "collect.http", "collect.banner"},
+func skipAsPrior(id string) bool {
+	switch id {
+	case "collect.tcpstack", "collect.http.enrich":
+		return true
+	}
+	return !strings.HasPrefix(id, "collect.")
+}
+
+func metadataHasTransport(md CollectorMetadata, t model.Transport) bool {
+	if len(md.Transports) == 0 {
+		return t == model.TransportTCP
+	}
+	for _, tr := range md.Transports {
+		if tr == t {
+			return true
+		}
+	}
+	return false
+}
+
+func unknownSequence(t model.Transport) []string {
+	if t == model.TransportUDP {
+		return append([]string(nil), unknownUDPSequence...)
+	}
+	return append([]string(nil), unknownTCPSequence...)
+}
+
+// unknownTCPSequence: banner → TLS → cheap text → high-value binary.
+var unknownTCPSequence = []string{
+	"collect.banner",
+	"collect.tls",
+	"collect.http",
+	"collect.ftp", "collect.smtp", "collect.pop3", "collect.imap", "collect.telnet",
+	"collect.ssh", "collect.mysql", "collect.postgres", "collect.redis",
+	"collect.mongodb", "collect.memcached", "collect.mssql", "collect.ldap",
+	"collect.rdp", "collect.smb", "collect.socks", "collect.mqtt", "collect.vnc", "collect.amqp",
+	"collect.dns",
+}
+
+var unknownUDPSequence = []string{
+	"collect.dns",
+	"collect.snmp",
 }
 
 // RateLimiter is a simple token-bucket style limiter (probes per second).

@@ -301,6 +301,10 @@ func applyCollectorOutcome(state *ScanState, task Task, result CollectorResult) 
 	}
 }
 
+func OutcomeFromError(err error) ProbeOutcome {
+	return outcomeFromError(err)
+}
+
 func outcomeFromError(err error) ProbeOutcome {
 	if err == nil {
 		return ""

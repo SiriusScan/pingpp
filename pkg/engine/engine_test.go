@@ -66,6 +66,46 @@ func TestPlannerPortPriorsNotIdentity(t *testing.T) {
 	}
 }
 
+func TestPlannerUnknownPortUsesBannerThenTLS(t *testing.T) {
+	reg := engine.NewRegistry()
+	for _, id := range []string{"collect.banner", "collect.tls", "collect.http", "collect.ssh"} {
+		id := id
+		reg.MustRegister(id, func(cfg engine.Config) (engine.Collector, error) {
+			return &stubCollector{id: id, stage: engine.StageCollect}, nil
+		})
+	}
+	p := engine.NewPlanner(reg, engine.ProfileFor(engine.ProfileDefault))
+	asset := model.NewAssetFromIP("192.0.2.10")
+	asset.AddEndpoint(model.NewEndpoint("192.0.2.10", 9999, model.TransportTCP, model.EndpointResponsive))
+	tasks := p.PlanClassification(asset, &engine.ScanState{Completed: map[string]bool{}})
+	if len(tasks) < 2 {
+		t.Fatalf("unknown port sequence too short: %v", taskIDs(tasks))
+	}
+	if tasks[0].CollectorID != "collect.banner" {
+		t.Fatalf("first unknown-port collector=%s want collect.banner", tasks[0].CollectorID)
+	}
+	if tasks[1].CollectorID != "collect.tls" {
+		t.Fatalf("second unknown-port collector=%s want collect.tls", tasks[1].CollectorID)
+	}
+}
+
+func TestPlannerUDPPortUsesRegistryMetadata(t *testing.T) {
+	reg := engine.NewRegistry()
+	reg.MustRegister("collect.snmp", func(cfg engine.Config) (engine.Collector, error) {
+		return &metaCollector{id: "collect.snmp", stage: engine.StageCollect, ports: []uint16{161}, tr: model.TransportUDP}, nil
+	})
+	reg.MustRegister("collect.http", func(cfg engine.Config) (engine.Collector, error) {
+		return &metaCollector{id: "collect.http", stage: engine.StageCollect, ports: []uint16{80}, tr: model.TransportTCP}, nil
+	})
+	p := engine.NewPlanner(reg, engine.ProfileFor(engine.ProfileDefault))
+	asset := model.NewAssetFromIP("192.0.2.10")
+	asset.AddEndpoint(model.NewEndpoint("192.0.2.10", 161, model.TransportUDP, model.EndpointResponsive))
+	tasks := p.PlanClassification(asset, &engine.ScanState{Completed: map[string]bool{}})
+	if len(tasks) != 1 || tasks[0].CollectorID != "collect.snmp" {
+		t.Fatalf("UDP 161 tasks=%v", taskIDs(tasks))
+	}
+}
+
 func TestEngineEnumerationPipeline(t *testing.T) {
 	ln, err := net.Listen("tcp", "127.0.0.1:0")
 	if err != nil {
@@ -356,7 +396,35 @@ type stubCollector struct {
 }
 
 func (s *stubCollector) Metadata() engine.CollectorMetadata {
-	return engine.CollectorMetadata{ID: s.id, Stage: s.stage, Priority: 50, Cost: 1}
+	ports := []uint16{}
+	switch s.id {
+	case "collect.ssh":
+		ports = []uint16{22}
+	case "collect.http":
+		ports = []uint16{80, 8080, 443, 8443}
+	case "collect.tls":
+		ports = []uint16{443, 8443}
+	}
+	return engine.CollectorMetadata{ID: s.id, Stage: s.stage, Priority: 50, Cost: 1, DefaultPorts: ports, Transports: []model.Transport{model.TransportTCP}}
+}
+
+type metaCollector struct {
+	id    string
+	stage engine.Stage
+	ports []uint16
+	tr    model.Transport
+}
+
+func (s *metaCollector) Metadata() engine.CollectorMetadata {
+	return engine.CollectorMetadata{
+		ID: s.id, Stage: s.stage, Priority: 50, Cost: 1,
+		DefaultPorts: append([]uint16(nil), s.ports...),
+		Transports:   []model.Transport{s.tr},
+	}
+}
+
+func (s *metaCollector) Run(ctx context.Context, in engine.CollectorInput) ([]model.ObservationRecord, error) {
+	return nil, nil
 }
 
 func (s *stubCollector) Run(ctx context.Context, in engine.CollectorInput) ([]model.ObservationRecord, error) {
