@@ -71,7 +71,6 @@ func (in CollectorInput) PrimaryIP() string {
 }
 
 // ScanState is the mutable per-asset scan progress shared with the planner.
-// Expanded in PR 3; defined here so CollectorInput compiles.
 type ScanState struct {
 	AssetID      string
 	Reachability model.Reachability
@@ -101,14 +100,6 @@ func (s *ScanState) IsComplete(collectorID string) bool {
 	s.mu.Lock()
 	defer s.mu.Unlock()
 	return s.Completed[collectorID]
-}
-
-// Budget limits scan effort. Expanded in PR 3.
-type Budget struct {
-	MaxProbesPerHost int
-	MaxBytesPerHost  int64
-	ProbesUsed       int
-	BytesUsed        int64
 }
 
 // Config is collector construction configuration.
