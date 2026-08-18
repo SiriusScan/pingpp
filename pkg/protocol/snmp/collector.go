@@ -2,10 +2,12 @@ package snmp
 
 import (
 	"context"
-	"encoding/asn1"
+	"encoding/json"
 	"fmt"
-	"net"
+	"strings"
 	"time"
+
+	"github.com/gosnmp/gosnmp"
 
 	"github.com/SiriusScan/ping++/pkg/engine"
 	"github.com/SiriusScan/ping++/pkg/model"
@@ -13,16 +15,18 @@ import (
 
 const id = "collect.snmp"
 
+// Collector performs an unauthenticated SNMPv2c GET of system OIDs.
 type Collector struct {
 	timeout   time.Duration
 	community string
 }
 
+// Observation holds sys* fields. Community is never serialized.
 type Observation struct {
-	SysDescr    string `json:"sys_descr,omitempty"`
-	SysObjectID string `json:"sys_object_id,omitempty"`
-	SysName     string `json:"sys_name,omitempty"`
-	Community   string `json:"community,omitempty"`
+	SysDescr         string `json:"sys_descr,omitempty"`
+	SysObjectID      string `json:"sys_object_id,omitempty"`
+	SysName          string `json:"sys_name,omitempty"`
+	EntPhysicalDescr string `json:"ent_physical_descr,omitempty"`
 }
 
 func New(cfg engine.Config) (*Collector, error) {
@@ -32,113 +36,127 @@ func New(cfg engine.Config) (*Collector, error) {
 	}
 	return &Collector{timeout: engine.EffectiveTimeout(cfg), community: community}, nil
 }
+
 func (c *Collector) Metadata() engine.CollectorMetadata {
-	return engine.CollectorMetadata{ID: id, Stage: engine.StageCollect, Transports: []model.Transport{model.TransportUDP}, DefaultPorts: []uint16{161}, Cost: 3, Priority: 65, SideEffectRisk: "low", SafeForOT: true}
+	return engine.CollectorMetadata{
+		ID: id, Stage: engine.StageCollect,
+		Transports:   []model.Transport{model.TransportUDP},
+		DefaultPorts: []uint16{161},
+		Cost:         3, Priority: 65,
+		SideEffectRisk: "low", SafeForOT: true,
+	}
 }
+
 func (c *Collector) Run(ctx context.Context, in engine.CollectorInput) ([]model.ObservationRecord, error) {
+	res, err := c.RunResult(ctx, in)
+	return res.Observations, err
+}
+
+func (c *Collector) RunResult(ctx context.Context, in engine.CollectorInput) (engine.CollectorResult, error) {
 	if in.Endpoint == nil {
-		return nil, fmt.Errorf("snmp: endpoint required")
+		return engine.CollectorResult{}, fmt.Errorf("snmp: endpoint required")
+	}
+	timeout := c.timeout
+	if in.Timeout > 0 {
+		timeout = in.Timeout
 	}
 	ref := in.Endpoint.Ref()
-	obs := model.ObservationRecord{ID: fmt.Sprintf("obs:snmp:%d", time.Now().UnixNano()), ProbeID: id, ObservationType: "snmp", Endpoint: &ref, Timestamp: time.Now().UTC(), CorrelationGroup: fmt.Sprintf("snmp:%s:%d", in.Endpoint.Address, in.Endpoint.Port)}
+	obs := model.ObservationRecord{
+		ID: fmt.Sprintf("obs:snmp:%d", time.Now().UnixNano()), ProbeID: id,
+		ObservationType: "snmp", Endpoint: &ref, Timestamp: time.Now().UTC(),
+		CorrelationGroup: fmt.Sprintf("snmp:%s:%d", in.Endpoint.Address, in.Endpoint.Port),
+	}
 	if in.Asset != nil {
 		obs.AssetID = in.Asset.ID
 	}
-	// SNMPv2c GET for sysDescr (1.3.6.1.2.1.1.1.0) — no community bruteforce.
-	pdu := buildSNMPv2cGet(c.community, []int{1, 3, 6, 1, 2, 1, 1, 1, 0})
-	addr := &net.UDPAddr{IP: net.ParseIP(in.Endpoint.Address), Port: int(in.Endpoint.Port)}
-	conn, err := net.DialUDP("udp", nil, addr)
-	if err != nil {
-		obs.Error = err.Error()
-		obs.Completeness = "none"
-		return []model.ObservationRecord{obs}, nil
+
+	g := &gosnmp.GoSNMP{
+		Target:    in.Endpoint.Address,
+		Port:      in.Endpoint.Port,
+		Community: c.community,
+		Version:   gosnmp.Version2c,
+		Timeout:   timeout,
+		Retries:   0,
+		MaxOids:   8,
+		Context:   ctx,
 	}
-	defer func() { _ = conn.Close() }()
-	_ = conn.SetDeadline(time.Now().Add(c.timeout))
-	_, _ = conn.Write(pdu)
-	buf := make([]byte, 2048)
-	n, err := conn.Read(buf)
-	payload := Observation{Community: c.community}
+	if err := g.Connect(); err != nil {
+		obs.Error = err.Error()
+		obs.Completeness = "none"
+		return engine.CollectorResult{
+			Outcome:      engine.OutcomeFromError(err),
+			Protocol:     "snmp",
+			Observations: []model.ObservationRecord{obs},
+		}, nil
+	}
+	defer func() { _ = g.Conn.Close() }()
+
+	oids := []string{
+		"1.3.6.1.2.1.1.1.0",          // sysDescr
+		"1.3.6.1.2.1.1.2.0",          // sysObjectID
+		"1.3.6.1.2.1.1.5.0",          // sysName
+		"1.3.6.1.2.1.47.1.1.1.1.2.1", // entPhysicalDescr.1
+	}
+	pkt, err := g.Get(oids)
+	payload := Observation{}
 	if err != nil {
 		obs.Error = err.Error()
 		obs.Completeness = "none"
-	} else {
-		payload.SysDescr = extractOctetString(buf[:n])
-		obs.Completeness = "partial"
-		if payload.SysDescr != "" {
-			obs.Completeness = "full"
+		out := engine.OutcomeFromError(err)
+		if out == engine.OutcomeInternalError {
+			out = engine.OutcomeNoMatch
+		}
+		_ = obs.SetPayload(payload)
+		return engine.CollectorResult{Outcome: out, Protocol: "snmp", Observations: []model.ObservationRecord{obs}}, nil
+	}
+	for _, pdu := range pkt.Variables {
+		val := pduString(pdu)
+		switch {
+		case strings.HasPrefix(pdu.Name, ".1.3.6.1.2.1.1.1.0") || pdu.Name == "1.3.6.1.2.1.1.1.0":
+			payload.SysDescr = val
+		case strings.HasPrefix(pdu.Name, ".1.3.6.1.2.1.1.2.0") || pdu.Name == "1.3.6.1.2.1.1.2.0":
+			payload.SysObjectID = val
+		case strings.HasPrefix(pdu.Name, ".1.3.6.1.2.1.1.5.0") || pdu.Name == "1.3.6.1.2.1.1.5.0":
+			payload.SysName = val
+		case strings.Contains(pdu.Name, "1.3.6.1.2.1.47.1.1.1.1.2"):
+			payload.EntPhysicalDescr = val
 		}
 	}
 	_ = obs.SetPayload(payload)
-	return []model.ObservationRecord{obs}, nil
+	if payload.SysDescr == "" && payload.SysObjectID == "" && payload.SysName == "" {
+		obs.Completeness = "none"
+		obs.Error = "no system oids"
+		return engine.CollectorResult{Outcome: engine.OutcomeNoMatch, Protocol: "snmp", Observations: []model.ObservationRecord{obs}}, nil
+	}
+	obs.Completeness = "full"
+	return engine.CollectorResult{Outcome: engine.OutcomeSuccess, Protocol: "snmp", Observations: []model.ObservationRecord{obs}}, nil
 }
 
-func buildSNMPv2cGet(community string, oid []int) []byte {
-	// Minimal hand-rolled SNMPv2c GetRequest.
-	var oidBytes []byte
-	if len(oid) >= 2 {
-		oidBytes = append(oidBytes, byte(oid[0]*40+oid[1]))
-		for _, v := range oid[2:] {
-			oidBytes = append(oidBytes, encodeBase128(v)...)
+func pduString(pdu gosnmp.SnmpPDU) string {
+	switch v := pdu.Value.(type) {
+	case string:
+		return v
+	case []byte:
+		return string(v)
+	case nil:
+		return ""
+	default:
+		s := fmt.Sprint(v)
+		if s == "<nil>" {
+			return ""
 		}
+		return s
 	}
-	oidTLV := append([]byte{0x06, byte(len(oidBytes))}, oidBytes...)
-	nullTLV := []byte{0x05, 0x00}
-	varbind := append([]byte{0x30, byte(len(oidTLV) + len(nullTLV))}, append(oidTLV, nullTLV...)...)
-	varbindList := append([]byte{0x30, byte(len(varbind))}, varbind...)
-	requestID := []byte{0x02, 0x01, 0x01}
-	errorStatus := []byte{0x02, 0x01, 0x00}
-	errorIndex := []byte{0x02, 0x01, 0x00}
-	pduBody := append(append(append(requestID, errorStatus...), errorIndex...), varbindList...)
-	pdu := append([]byte{0xa0, byte(len(pduBody))}, pduBody...)
-	version := []byte{0x02, 0x01, 0x01} // v2c
-	comm := append([]byte{0x04, byte(len(community))}, []byte(community)...)
-	msg := append(append(version, comm...), pdu...)
-	return append([]byte{0x30, byte(len(msg))}, msg...)
 }
 
-func encodeBase128(v int) []byte {
-	if v < 128 {
-		return []byte{byte(v)}
-	}
-	var out []byte
-	for v > 0 {
-		out = append([]byte{byte(v & 0x7f)}, out...)
-		v >>= 7
-	}
-	for i := 0; i < len(out)-1; i++ {
-		out[i] |= 0x80
-	}
-	return out
-}
-
-func extractOctetString(data []byte) string {
-	// Best-effort scan for an OCTET STRING (0x04) with printable content.
-	for i := 0; i+2 < len(data); i++ {
-		if data[i] == 0x04 {
-			l := int(data[i+1])
-			if l > 0 && i+2+l <= len(data) {
-				s := string(data[i+2 : i+2+l])
-				if isPrintable(s) {
-					return s
-				}
-			}
-		}
-	}
-	_ = asn1.TagOctetString
-	return ""
-}
-
-func isPrintable(s string) bool {
-	if len(s) < 3 {
+// MarshalJSONForTest asserts community is not present in serialized observations.
+func CommunityAbsent(payload []byte) bool {
+	var raw map[string]any
+	if err := json.Unmarshal(payload, &raw); err != nil {
 		return false
 	}
-	for _, r := range s {
-		if r < 32 || r > 126 {
-			return false
-		}
-	}
-	return true
+	_, ok := raw["community"]
+	return !ok
 }
 
 func Register(r *engine.Registry) {

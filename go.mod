@@ -11,6 +11,7 @@ require (
 
 require (
 	github.com/google/uuid v1.6.0 // indirect
+	github.com/gosnmp/gosnmp v1.42.1 // indirect
 	github.com/jfjallid/gofork v1.7.6 // indirect
 	github.com/jfjallid/gokrb5/v8 v8.5.1 // indirect
 	github.com/jfjallid/golog v0.3.3 // indirect
