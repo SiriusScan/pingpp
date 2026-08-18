@@ -37,9 +37,9 @@ Reviewed prototype commit: `bfef5cb`.
 
 ## Current head
 
-This commit (`12526b0`) — ProbeTypes compatibility, stage-fair multi-address scans,
-endpoint execution completeness, C13 typed exit codes, and responsive
-unclassified findings in default text.
+This commit — deterministic A/AAAA order and de-duplication, dead-address
+fairness, and HTTP/TLS evidence that distinguishes logical host from the
+pinned transport IP (Host + SNI stay on the hostname).
 
 Canonical path:
 
@@ -362,21 +362,29 @@ Known debt:
 
 ## R17 IPv6 / multi-address
 
-Status: COMPLETE for shared logical-scan budget, merged protocol state, and
-stage-fair multi-address execution
+Status: COMPLETE for shared logical-scan budget, merged protocol state,
+stage-fair multi-address execution, deterministic address order, and HTTP
+pinned-IP vs Host/SNI
 
-Commit: `12526b0` D0/D1 across all addresses, then round-robin classify/enrich;
-logical `State.AssetID` is no longer overwritten by per-IP IDs
+Commit: this commit — ResolveTarget/ScanResolved de-duplicate and order
+IPv4 then IPv6; HTTP DialContext is pinned to `Endpoint.Address` while the
+request URL/Host and TLS SNI use the logical hostname; observation payloads
+record `logical_host` / `transport_ip`
 
 Acceptance tests:
 - `TestScanResolvedAllAddresses` — two resolved IPs both appear; hostname preserved; per-address complete keys
 - `TestScanResolvedSharesNetworkBudget` — two addresses share one `MaxNetworkOps`
 - `TestScanResolvedStageFairnessAndLogicalAssetID` — both addresses get enumeration before adaptive probes can exhaust the shared budget; `AssetID` stays `asset:<hostname>`
+- `TestScanResolvedDeadAddressDoesNotStarveSibling` — a dead loopback that sorts first does not prevent HTTP evidence from a live sibling IP; evidence is attributed to the live address
+- `TestUniqueOrderedAddressesDedupsAndSorts` / `TestResolveTargetOrdersAndDedupsLookup` — IPv4 before IPv6, IPv4-mapped forms collapse, resolver order is not the scan order
 - `TestClassificationPassesHostnameTarget` — hostname survives into collectors for SNI/Host
+- `TestHTTPCollectorPinsTransportIPAndHostHeader` — unresolvable logical host still dials the selected IP with that Host header
+- `TestHTTPCollectorPinsTLSSNIToLogicalHost` — HTTPS SNI is the hostname while the TCP peer is the pinned IP
+- `TestHTTPSameHostRedirectStaysOnPinnedIP` — same-host redirects do not re-resolve DNS
+- `TestTLSCollectorPinsUnresolvableLogicalHost` — TLS dials `Endpoint.Address` with SNI = hostname
 - `TestConfigFromScanOptionsPreservesProbeTypes` — Sirius `icmp,tcp` still filters protocol collectors through `scan.Config`
 
 Known debt:
-- HTTP still dials the resolved IP in the request URL and rewrites the observation hostname (redirect/SNI follow-up).
 - True target-wide `MaxConcurrentPerHost` at transport I/O is still scheduler-task scoped.
 - IPv6 filtered vs budget-starved vs no-route still needs a dedicated matrix beyond the fairness unit test.
 

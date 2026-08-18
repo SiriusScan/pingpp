@@ -72,6 +72,8 @@ type TLSObservation struct {
 	CipherSuite  uint16                   `json:"cipher_suite,omitempty"`
 	ALPN         string                   `json:"alpn,omitempty"`
 	ServerName   string                   `json:"server_name,omitempty"`
+	LogicalHost  string                   `json:"logical_host,omitempty"`
+	TransportIP  string                   `json:"transport_ip,omitempty"`
 	Certificates []CertificateObservation `json:"certificates,omitempty"`
 }
 
@@ -109,6 +111,13 @@ type HTTPObservation struct {
 	SimHash          uint64              `json:"simhash,omitempty"`
 	Favicon          *FaviconObservation `json:"favicon,omitempty"`
 	RedirectChain    []Redirect          `json:"redirect_chain,omitempty"`
+	// LogicalHost is the intended HTTP Host / identity (hostname when known).
+	LogicalHost string `json:"logical_host,omitempty"`
+	// TransportIP is the resolved address actually dialed. It must not be
+	// confused with LogicalHost: HTTP clients must not re-resolve the name.
+	TransportIP string `json:"transport_ip,omitempty"`
+	// TLSServerName is the SNI sent on HTTPS probes (hostname, not the IP).
+	TLSServerName string `json:"tls_server_name,omitempty"`
 	// Body is filled at fingerprint time from artifacts; collectors should not
 	// put large bodies here.
 	Body string `json:"body,omitempty"`

@@ -53,7 +53,44 @@ func TestTLSCollectorCapturesCert(t *testing.T) {
 	if payload.Certificates[0].SHA256 == "" || payload.Certificates[0].SPKISHA256 == "" {
 		t.Fatal("expected cert hashes")
 	}
+	if payload.TransportIP != "127.0.0.1" {
+		t.Fatalf("transport_ip=%q", payload.TransportIP)
+	}
+	if payload.ServerName != "localhost" || payload.LogicalHost != "localhost" {
+		t.Fatalf("sni/logical=%q/%q", payload.ServerName, payload.LogicalHost)
+	}
 	_ = conf
+}
+
+func TestTLSCollectorPinsUnresolvableLogicalHost(t *testing.T) {
+	ln, _ := startTLSServer(t)
+	defer func() { _ = ln.Close() }()
+	port := uint16(ln.Addr().(*net.TCPAddr).Port)
+	c, err := tlscol.New(engine.Config{Timeout: time.Second})
+	if err != nil {
+		t.Fatal(err)
+	}
+	ep := model.NewEndpoint("127.0.0.1", port, model.TransportTCP, model.EndpointOpen)
+	obs, err := c.Run(context.Background(), engine.CollectorInput{
+		Endpoint: &ep,
+		Target:   &model.Target{Hostname: "pin-test.invalid"},
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(obs) != 1 || obs[0].Error != "" {
+		t.Fatalf("obs=%+v", obs)
+	}
+	var payload model.TLSObservation
+	if err := obs[0].DecodePayload(&payload); err != nil {
+		t.Fatal(err)
+	}
+	if payload.TransportIP != "127.0.0.1" {
+		t.Fatalf("transport_ip=%q", payload.TransportIP)
+	}
+	if payload.ServerName != "pin-test.invalid" {
+		t.Fatalf("sni=%q", payload.ServerName)
+	}
 }
 
 func TestTLSCollectorNoMatchOnPlaintext(t *testing.T) {

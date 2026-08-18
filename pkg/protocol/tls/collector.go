@@ -95,6 +95,8 @@ func (c *Collector) RunResult(ctx context.Context, in engine.CollectorInput) (en
 		CipherSuite: state.CipherSuite,
 		ALPN:        state.NegotiatedProtocol,
 		ServerName:  serverName,
+		LogicalHost: serverName,
+		TransportIP: in.Endpoint.Address,
 	}
 	for _, cert := range state.PeerCertificates {
 		payload.Certificates = append(payload.Certificates, certObs(cert))

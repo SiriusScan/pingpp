@@ -1,6 +1,7 @@
 package engine
 
 import (
+	"bytes"
 	"context"
 	"errors"
 	"fmt"
@@ -260,20 +261,21 @@ func (e *Engine) ScanTarget(ctx context.Context, raw string) (*ScanResult, error
 // Discovery and enumeration run across all addresses before adaptive work so
 // a shared target budget cannot starve later A/AAAA records.
 func (e *Engine) ScanResolved(ctx context.Context, target model.Target) (*ScanResult, error) {
-	if len(target.Addresses) == 0 {
+	addrs := uniqueOrderedAddresses(target.Addresses)
+	if len(addrs) == 0 {
 		return nil, fmt.Errorf("no addresses for %q", target.Input)
 	}
 	logicalID := "asset:" + target.Input
-	if len(target.Addresses) == 1 {
-		return e.scanAddress(ctx, target, target.Addresses[0], nil)
+	if len(addrs) == 1 {
+		return e.scanAddress(ctx, target, addrs[0], nil)
 	}
 
 	type addrWork struct {
 		target model.Target
 		asset  *model.Asset
 	}
-	works := make([]addrWork, 0, len(target.Addresses))
-	for _, addr := range target.Addresses {
+	works := make([]addrWork, 0, len(addrs))
+	for _, addr := range addrs {
 		one := target
 		one.Addresses = []model.Address{addr}
 		asset := model.NewAssetFromIP(addr.IP)
@@ -893,26 +895,112 @@ func appendUniqueReason(slice []string, v string) []string {
 	return append(slice, v)
 }
 
+// lookupIPAddr is the hostname resolver used by ResolveTarget. Tests swap it
+// to inject A/AAAA answers without touching the system resolver.
+var lookupIPAddr = defaultLookupIPAddr
+
+func defaultLookupIPAddr(ctx context.Context, host string) ([]net.IPAddr, error) {
+	return net.DefaultResolver.LookupIPAddr(ctx, host)
+}
+
 // ResolveTarget expands a single IP or hostname into a Target.
-// CIDR expansion is handled by callers for now.
+// CIDR expansion is handled by callers for now. Hostname answers are
+// de-duplicated (including IPv4-mapped forms) and ordered IPv4 then IPv6,
+// then by address bytes, so later pipeline stages are not resolver-order
+// dependent.
 func ResolveTarget(ctx context.Context, raw string) (model.Target, error) {
 	raw = strings.TrimSpace(raw)
 	if ip := net.ParseIP(raw); ip != nil {
+		canon := uniqueOrderedAddresses([]model.Address{model.NewAddress(ip.String())})
+		if len(canon) == 1 {
+			return model.NewTargetIP(canon[0].IP), nil
+		}
 		return model.NewTargetIP(raw), nil
 	}
 	// Hostname — retain for SNI/Host
-	addrs, err := net.DefaultResolver.LookupIPAddr(ctx, raw)
+	addrs, err := lookupIPAddr(ctx, raw)
 	if err != nil {
 		return model.Target{}, err
 	}
-	var ips []string
+	converted := make([]model.Address, 0, len(addrs))
 	for _, a := range addrs {
-		ips = append(ips, a.IP.String())
+		if a.IP == nil {
+			continue
+		}
+		converted = append(converted, model.NewAddress(a.IP.String()))
 	}
-	if len(ips) == 0 {
+	ordered := uniqueOrderedAddresses(converted)
+	if len(ordered) == 0 {
 		return model.Target{}, fmt.Errorf("no A/AAAA records for %s", raw)
 	}
+	ips := make([]string, len(ordered))
+	for i, a := range ordered {
+		ips[i] = a.IP
+	}
 	return model.NewTargetHostname(raw, ips...), nil
+}
+
+func uniqueOrderedAddresses(in []model.Address) []model.Address {
+	type item struct {
+		ip   net.IP
+		orig model.Address
+	}
+	seen := make(map[string]struct{}, len(in))
+	items := make([]item, 0, len(in))
+	for _, a := range in {
+		ip := net.ParseIP(strings.TrimSpace(a.IP))
+		if ip == nil {
+			key := "raw:" + a.IP
+			if _, ok := seen[key]; ok {
+				continue
+			}
+			seen[key] = struct{}{}
+			items = append(items, item{orig: a})
+			continue
+		}
+		if v4 := ip.To4(); v4 != nil {
+			ip = v4
+		}
+		key := ip.String()
+		if _, ok := seen[key]; ok {
+			continue
+		}
+		seen[key] = struct{}{}
+		orig := a
+		orig.IP = ip.String()
+		if ip.To4() != nil {
+			orig.Version = 4
+		} else {
+			orig.Version = 6
+		}
+		items = append(items, item{ip: append(net.IP(nil), ip...), orig: orig})
+	}
+	sort.SliceStable(items, func(i, j int) bool {
+		a, b := items[i].ip, items[j].ip
+		if a == nil && b == nil {
+			return items[i].orig.IP < items[j].orig.IP
+		}
+		if a == nil {
+			return false
+		}
+		if b == nil {
+			return true
+		}
+		a4, b4 := a.To4() != nil, b.To4() != nil
+		if a4 != b4 {
+			return a4
+		}
+		aa, bb := a.To16(), b.To16()
+		if aa == nil || bb == nil {
+			return a.String() < b.String()
+		}
+		return bytes.Compare(aa, bb) < 0
+	})
+	out := make([]model.Address, len(items))
+	for i, it := range items {
+		out[i] = it.orig
+	}
+	return out
 }
 
 // Scheduler runs tasks with per-host concurrency limits.

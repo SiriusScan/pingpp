@@ -71,6 +71,15 @@ func TestHTTPCollectorGETObservation(t *testing.T) {
 	if p.Favicon == nil || p.Favicon.URL != "/favicon.ico" {
 		t.Fatalf("favicon=%+v", p.Favicon)
 	}
+	if p.LogicalHost != "grafana.local" {
+		t.Fatalf("logical_host=%q", p.LogicalHost)
+	}
+	if p.TransportIP != "127.0.0.1" {
+		t.Fatalf("transport_ip=%q", p.TransportIP)
+	}
+	if obs[0].Endpoint == nil || obs[0].Endpoint.Address != "127.0.0.1" {
+		t.Fatalf("observation endpoint=%+v", obs[0].Endpoint)
+	}
 	if obs[0].ObservationType != model.ObservationHTTP {
 		t.Fatal("wrong type")
 	}

@@ -90,14 +90,11 @@ func (c *Collector) RunResult(ctx context.Context, in engine.CollectorInput) (en
 	if useTLS {
 		scheme = "https"
 	}
-	url := fmt.Sprintf("%s://%s/", scheme, net.JoinHostPort(in.Endpoint.Address, fmt.Sprintf("%d", in.Endpoint.Port)))
-	if path, ok := in.Extra["path"]; ok && path != "" {
-		url = fmt.Sprintf("%s://%s%s", scheme, net.JoinHostPort(in.Endpoint.Address, fmt.Sprintf("%d", in.Endpoint.Port)), path)
-	}
+	pinIP := in.Endpoint.Address
 	publicURL := publicHTTPURL(scheme, hostHeader, in.Endpoint.Port, in.Extra["path"])
 
 	var chain []model.Redirect
-	client := newHTTPClient(timeout, hostHeader, func(req *http.Request, via []*http.Request) error {
+	client := newHTTPClient(timeout, pinIP, hostHeader, func(req *http.Request, via []*http.Request) error {
 		prev := via[len(via)-1]
 		status := 0
 		loc := req.URL.String()
@@ -117,7 +114,7 @@ func (c *Collector) RunResult(ctx context.Context, in engine.CollectorInput) (en
 		return nil
 	})
 
-	req, err := http.NewRequestWithContext(ctx, http.MethodGet, url, nil)
+	req, err := http.NewRequestWithContext(ctx, http.MethodGet, publicURL, nil)
 	if err != nil {
 		return engine.CollectorResult{}, err
 	}
@@ -163,6 +160,11 @@ func (c *Collector) RunResult(ctx context.Context, in engine.CollectorInput) (en
 		payload.EffectiveURL = publicURL
 	}
 	payload.RedirectChain = chain
+	payload.LogicalHost = hostHeader
+	payload.TransportIP = pinIP
+	if useTLS {
+		payload.TLSServerName = hostHeader
+	}
 	if in.Artifacts != nil && len(body) > 0 {
 		if art, err := in.Artifacts.Put("text/html", body, "http body"); err == nil {
 			obs.ArtifactIDs = append(obs.ArtifactIDs, art.ID)
@@ -290,12 +292,19 @@ func hostnameURL(u url.URL, hostHeader, dialAddr string, port uint16) string {
 	return u.String()
 }
 
-func newHTTPClient(timeout time.Duration, serverName string, redirect func(*http.Request, []*http.Request) error) *http.Client {
+func newHTTPClient(timeout time.Duration, pinIP, serverName string, redirect func(*http.Request, []*http.Request) error) *http.Client {
 	return &http.Client{
 		Timeout:       timeout,
 		CheckRedirect: redirect,
 		Transport: &http.Transport{
 			DialContext: func(ctx context.Context, network, addr string) (net.Conn, error) {
+				if pinIP != "" {
+					_, port, err := net.SplitHostPort(addr)
+					if err != nil {
+						return nil, err
+					}
+					addr = net.JoinHostPort(pinIP, port)
+				}
 				return dialHTTP(ctx, network, addr, timeout)
 			},
 			TLSClientConfig: &tls.Config{
