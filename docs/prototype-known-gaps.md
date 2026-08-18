@@ -37,11 +37,11 @@ Reviewed prototype commit: `bfef5cb`.
 
 ## Current head
 
-This tree — production-ready ping++ correctness for Sirius integration:
-HTTP apex/www redirect split, scheduler terminal dispositions, host-wide
-transport concurrency, IPv6 outcome matrix, monotonic `Endpoint.Execution`,
-fingerprint normalization, Engine-path Sirius adapter, Runner C14–C16,
-budget/meter sweep, NOTICE, and architecture doc.
+This commit (`9983140`) — production-ready ping++ correctness for Sirius
+integration: HTTP apex/www redirect split, scheduler terminal dispositions,
+host-wide transport concurrency, IPv6 outcome matrix, monotonic
+`Endpoint.Execution`, fingerprint normalization, Engine-path Sirius adapter,
+Runner C14–C16, budget/meter sweep, NOTICE, and architecture doc.
 
 Canonical path:
 
