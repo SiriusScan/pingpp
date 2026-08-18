@@ -43,8 +43,14 @@ func (c *Collector) Metadata() engine.CollectorMetadata {
 
 // Run implements engine.Collector.
 func (c *Collector) Run(ctx context.Context, in engine.CollectorInput) ([]model.ObservationRecord, error) {
+	res, err := c.RunResult(ctx, in)
+	return res.Observations, err
+}
+
+// RunResult implements engine.ResultCollector.
+func (c *Collector) RunResult(ctx context.Context, in engine.CollectorInput) (engine.CollectorResult, error) {
 	if in.Endpoint == nil {
-		return nil, fmt.Errorf("tls: endpoint required")
+		return engine.CollectorResult{}, fmt.Errorf("tls: endpoint required")
 	}
 	timeout := c.timeout
 	if in.Timeout > 0 {
@@ -56,21 +62,30 @@ func (c *Collector) Run(ctx context.Context, in engine.CollectorInput) ([]model.
 	}
 
 	conn, err := transport.DialTLS(ctx, in.Endpoint.Address, in.Endpoint.Port, serverName, timeout)
+	ref := in.Endpoint.Ref()
+	obs := model.ObservationRecord{
+		ID:               fmt.Sprintf("obs:tls:%s:%d:%d", in.Endpoint.Address, in.Endpoint.Port, time.Now().UnixNano()),
+		ProbeID:          collectorID,
+		ObservationType:  model.ObservationTLS,
+		Endpoint:         &ref,
+		Timestamp:        time.Now().UTC(),
+		CorrelationGroup: fmt.Sprintf("tls:%s:%d", in.Endpoint.Address, in.Endpoint.Port),
+	}
+	if in.Asset != nil {
+		obs.AssetID = in.Asset.ID
+	}
 	if err != nil {
-		obs := model.ObservationRecord{
-			ID:              fmt.Sprintf("obs:tls:%s:%d:%d", in.Endpoint.Address, in.Endpoint.Port, time.Now().UnixNano()),
-			ProbeID:         collectorID,
-			ObservationType: model.ObservationTLS,
-			Timestamp:       time.Now().UTC(),
-			Error:           err.Error(),
-			Completeness:    "none",
+		obs.Error = err.Error()
+		obs.Completeness = "none"
+		out := engine.OutcomeFromError(err)
+		if out == engine.OutcomeInternalError {
+			out = engine.OutcomeNoMatch
 		}
-		ref := in.Endpoint.Ref()
-		obs.Endpoint = &ref
-		if in.Asset != nil {
-			obs.AssetID = in.Asset.ID
-		}
-		return []model.ObservationRecord{obs}, nil
+		return engine.CollectorResult{
+			Outcome:      out,
+			Protocol:     "tls",
+			Observations: []model.ObservationRecord{obs},
+		}, nil
 	}
 	defer func() { _ = conn.Close() }()
 
@@ -84,24 +99,15 @@ func (c *Collector) Run(ctx context.Context, in engine.CollectorInput) ([]model.
 	for _, cert := range state.PeerCertificates {
 		payload.Certificates = append(payload.Certificates, certObs(cert))
 	}
-
-	ref := in.Endpoint.Ref()
-	obs := model.ObservationRecord{
-		ID:               fmt.Sprintf("obs:tls:%s:%d:%d", in.Endpoint.Address, in.Endpoint.Port, time.Now().UnixNano()),
-		ProbeID:          collectorID,
-		ObservationType:  model.ObservationTLS,
-		Endpoint:         &ref,
-		Timestamp:        time.Now().UTC(),
-		CorrelationGroup: fmt.Sprintf("tls:%s:%d", in.Endpoint.Address, in.Endpoint.Port),
-		Completeness:     "full",
-	}
-	if in.Asset != nil {
-		obs.AssetID = in.Asset.ID
-	}
+	obs.Completeness = "full"
 	if err := obs.SetPayload(payload); err != nil {
-		return nil, err
+		return engine.CollectorResult{}, err
 	}
-	return []model.ObservationRecord{obs}, nil
+	return engine.CollectorResult{
+		Outcome:      engine.OutcomeSuccess,
+		Protocol:     "tls",
+		Observations: []model.ObservationRecord{obs},
+	}, nil
 }
 
 func certObs(cert *x509.Certificate) model.CertificateObservation {

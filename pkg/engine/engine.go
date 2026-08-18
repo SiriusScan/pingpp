@@ -260,6 +260,7 @@ func (e *Engine) runTask(ctx context.Context, task Task, asset *model.Asset, sta
 		}
 	}
 	applyCollectorOutcome(state, task, result)
+	applyProtocolClaim(asset, task, result)
 	for _, o := range result.Observations {
 		if o.AssetID == "" {
 			o.AssetID = asset.ID
@@ -289,16 +290,47 @@ func applyCollectorOutcome(state *ScanState, task Task, result CollectorResult) 
 	if state == nil || task.Endpoint == nil {
 		return
 	}
-	proto := result.Protocol
-	if proto == "" {
-		proto = collectorProtocol(task.CollectorID)
-	}
+	proto := resultProtocol(task, result)
 	switch result.Outcome {
 	case OutcomeSuccess:
 		state.NoteProtocol(task.Endpoint.Key(), proto, true)
 	case OutcomeNoMatch:
 		state.NoteProtocol(task.Endpoint.Key(), proto, false)
 	}
+}
+
+func resultProtocol(task Task, result CollectorResult) string {
+	if result.Protocol != "" {
+		return result.Protocol
+	}
+	return collectorProtocol(task.CollectorID)
+}
+
+func applyProtocolClaim(asset *model.Asset, task Task, result CollectorResult) {
+	if asset == nil || task.Endpoint == nil || result.Outcome != OutcomeSuccess {
+		return
+	}
+	proto := resultProtocol(task, result)
+	if proto == "" || proto == "banner" || proto == "tcp" || proto == "udp" || proto == "endpoint" {
+		return
+	}
+	var evidence []string
+	for _, o := range result.Observations {
+		if o.ID != "" {
+			evidence = append(evidence, o.ID)
+		}
+	}
+	asset.AddClaim(model.Claim{
+		ID:               fmt.Sprintf("protocol:%s:%s", proto, task.Endpoint.Key()),
+		Kind:             model.ClaimProtocol,
+		Product:          proto,
+		Value:            proto,
+		Subject:          task.Endpoint.Key(),
+		Score:            90,
+		Confidence:       model.ConfidenceStrong,
+		EvidenceIDs:      evidence,
+		CorrelationGroup: "protocol:" + task.Endpoint.Key(),
+	})
 }
 
 func OutcomeFromError(err error) ProbeOutcome {
@@ -329,7 +361,13 @@ func (e *Engine) applyFingerprints(asset *model.Asset) {
 	if e == nil || e.fingerprints == nil || asset == nil {
 		return
 	}
-	asset.Claims = asset.Claims[:0]
+	kept := asset.Claims[:0]
+	for _, c := range asset.Claims {
+		if c.Kind == model.ClaimProtocol {
+			kept = append(kept, c)
+		}
+	}
+	asset.Claims = kept
 	for _, c := range e.fingerprints.Match(asset.Observations) {
 		asset.AddClaim(c)
 	}

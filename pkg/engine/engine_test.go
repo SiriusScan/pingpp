@@ -207,6 +207,15 @@ func TestProtocolConfirmPromotesEndpointOpen(t *testing.T) {
 	if !sawHTTP {
 		t.Fatal("expected collect.http observation even before HTTP emits ProbeOutcome")
 	}
+	foundProto := false
+	for _, c := range res.Asset.Claims {
+		if c.Kind == model.ClaimProtocol && c.Value == "http" {
+			foundProto = true
+		}
+	}
+	if !foundProto {
+		t.Fatalf("engine must attach endpoint-scoped protocol claims, claims=%+v", res.Asset.Claims)
+	}
 }
 
 func TestEngineOwnsFingerprints(t *testing.T) {

@@ -38,8 +38,14 @@ func (c *Collector) Metadata() engine.CollectorMetadata {
 
 // Run implements engine.Collector.
 func (c *Collector) Run(ctx context.Context, in engine.CollectorInput) ([]model.ObservationRecord, error) {
+	res, err := c.RunResult(ctx, in)
+	return res.Observations, err
+}
+
+// RunResult implements engine.ResultCollector.
+func (c *Collector) RunResult(ctx context.Context, in engine.CollectorInput) (engine.CollectorResult, error) {
 	if in.Endpoint == nil {
-		return nil, fmt.Errorf("ssh: endpoint required")
+		return engine.CollectorResult{}, fmt.Errorf("ssh: endpoint required")
 	}
 	timeout := c.timeout
 	if in.Timeout > 0 {
@@ -59,7 +65,11 @@ func (c *Collector) Run(ctx context.Context, in engine.CollectorInput) ([]model.
 	if err != nil {
 		obs.Error = err.Error()
 		obs.Completeness = "none"
-		return []model.ObservationRecord{obs}, nil
+		return engine.CollectorResult{
+			Outcome:      engine.OutcomeFromError(err),
+			Protocol:     "ssh",
+			Observations: []model.ObservationRecord{obs},
+		}, nil
 	}
 	defer func() { _ = conn.Close() }()
 	_ = conn.SetDeadline(time.Now().Add(timeout))
@@ -77,22 +87,39 @@ func (c *Collector) Run(ctx context.Context, in engine.CollectorInput) ([]model.
 		}
 	}
 
-	// Send a client identification to elicit KEXINIT, then parse algorithm lists.
-	_, _ = conn.Write([]byte("SSH-2.0-pingpp_0.1\r\n"))
-	_ = conn.SetDeadline(time.Now().Add(timeout))
-	buf := make([]byte, 16*1024)
-	n, _ := reader.Read(buf)
-	if n > 0 {
-		parseKEXINIT(buf[:n], &payload)
+	if strings.HasPrefix(payload.Banner, "SSH-") {
+		_, _ = conn.Write([]byte("SSH-2.0-pingpp_0.1\r\n"))
+		_ = conn.SetDeadline(time.Now().Add(timeout))
+		buf := make([]byte, 16*1024)
+		n, _ := reader.Read(buf)
+		if n > 0 {
+			parseKEXINIT(buf[:n], &payload)
+		}
+		obs.Completeness = "full"
+		if err := obs.SetPayload(payload); err != nil {
+			return engine.CollectorResult{}, err
+		}
+		return engine.CollectorResult{
+			Outcome:      engine.OutcomeSuccess,
+			Protocol:     "ssh",
+			Observations: []model.ObservationRecord{obs},
+		}, nil
 	}
-	obs.Completeness = "full"
-	if payload.Banner == "" {
+
+	obs.Completeness = "none"
+	if payload.Banner != "" {
 		obs.Completeness = "partial"
+	} else if err != nil {
+		obs.Error = err.Error()
+	} else {
+		obs.Error = "not ssh"
 	}
-	if err := obs.SetPayload(payload); err != nil {
-		return nil, err
-	}
-	return []model.ObservationRecord{obs}, nil
+	_ = obs.SetPayload(payload)
+	return engine.CollectorResult{
+		Outcome:      engine.OutcomeNoMatch,
+		Protocol:     "ssh",
+		Observations: []model.ObservationRecord{obs},
+	}, nil
 }
 
 // parseKEXINIT extracts name-lists from an SSH_MSG_KEXINIT payload if present.

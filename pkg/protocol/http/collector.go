@@ -61,8 +61,14 @@ func (c *Collector) Metadata() engine.CollectorMetadata {
 
 // Run implements engine.Collector.
 func (c *Collector) Run(ctx context.Context, in engine.CollectorInput) ([]model.ObservationRecord, error) {
+	res, err := c.RunResult(ctx, in)
+	return res.Observations, err
+}
+
+// RunResult implements engine.ResultCollector.
+func (c *Collector) RunResult(ctx context.Context, in engine.CollectorInput) (engine.CollectorResult, error) {
 	if in.Endpoint == nil {
-		return nil, fmt.Errorf("http: endpoint required")
+		return engine.CollectorResult{}, fmt.Errorf("http: endpoint required")
 	}
 	timeout := c.timeout
 	if in.Timeout > 0 {
@@ -73,7 +79,10 @@ func (c *Collector) Run(ctx context.Context, in engine.CollectorInput) ([]model.
 		hostHeader = in.Target.Hostname
 	}
 
-	useTLS := in.Endpoint.Port == 443 || in.Endpoint.Port == 8443
+	useTLS := in.Extra["tls"] == "1"
+	if !useTLS && in.State != nil {
+		useTLS = in.State.HasProtocol(in.Endpoint.Key(), "tls")
+	}
 	scheme := "http"
 	if useTLS {
 		scheme = "https"
@@ -100,7 +109,7 @@ func (c *Collector) Run(ctx context.Context, in engine.CollectorInput) ([]model.
 
 	req, err := http.NewRequestWithContext(ctx, http.MethodGet, url, nil)
 	if err != nil {
-		return nil, err
+		return engine.CollectorResult{}, err
 	}
 	req.Host = hostHeader
 	req.Header.Set("User-Agent", "ping++/0.1")
@@ -122,7 +131,15 @@ func (c *Collector) Run(ctx context.Context, in engine.CollectorInput) ([]model.
 	if err != nil {
 		obs.Error = err.Error()
 		obs.Completeness = "none"
-		return []model.ObservationRecord{obs}, nil
+		out := engine.OutcomeFromError(err)
+		if out == engine.OutcomeInternalError {
+			out = engine.OutcomeNoMatch
+		}
+		return engine.CollectorResult{
+			Outcome:      out,
+			Protocol:     "http",
+			Observations: []model.ObservationRecord{obs},
+		}, nil
 	}
 	defer func() { _ = resp.Body.Close() }()
 
@@ -130,9 +147,14 @@ func (c *Collector) Run(ctx context.Context, in engine.CollectorInput) ([]model.
 	payload := buildHTTPObservation(url, resp, body)
 	obs.Completeness = "full"
 	if err := obs.SetPayload(payload); err != nil {
-		return nil, err
+		return engine.CollectorResult{}, err
 	}
-	return []model.ObservationRecord{obs}, nil
+	return engine.CollectorResult{
+		Outcome:      engine.OutcomeSuccess,
+		Protocol:     "http",
+		Observations: []model.ObservationRecord{obs},
+		BytesRead:    int64(len(body)),
+	}, nil
 }
 
 func buildHTTPObservation(url string, resp *http.Response, body []byte) model.HTTPObservation {
