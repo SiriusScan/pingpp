@@ -1,0 +1,13 @@
+id: openssh-banner
+scope: service
+correlation_group: ssh_banner
+inputs:
+  observation_type: ssh
+matches:
+  - field: banner
+    regex: "(?i)OpenSSH"
+claims:
+  - kind: product
+    product: OpenSSH
+    certainty: strong
+    score: 92
