@@ -1,0 +1,6 @@
+observation_type: http
+payload:
+  server: openresty/1.21
+expect:
+  product: OpenResty
+  min_confidence: strong

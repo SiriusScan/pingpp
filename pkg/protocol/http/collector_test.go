@@ -152,14 +152,14 @@ func TestHTTPSameHostRedirectAndCrossHostStop(t *testing.T) {
 }
 
 func TestHTTPBodyArtifactAndTruncation(t *testing.T) {
-	body := make([]byte, 70*1024)
+	body := make([]byte, 270*1024)
 	for i := range body {
 		body[i] = 'A'
 	}
 	ln := startHTTP(t, body)
 	defer func() { _ = ln.Close() }()
 	port := uint16(ln.Addr().(*net.TCPAddr).Port)
-	store := artifact.NewMemoryStore(256 * 1024)
+	store := artifact.NewMemoryStore(512 * 1024)
 	c, _ := httpcol.New(engine.Config{Timeout: time.Second})
 	ep := model.NewEndpoint("127.0.0.1", port, model.TransportTCP, model.EndpointOpen)
 	res, err := c.RunResult(context.Background(), engine.CollectorInput{

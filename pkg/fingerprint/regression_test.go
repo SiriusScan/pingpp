@@ -1,7 +1,6 @@
 package fingerprint_test
 
 import (
-	"path/filepath"
 	"testing"
 
 	"github.com/SiriusScan/ping++/pkg/fingerprint"
@@ -10,12 +9,9 @@ import (
 
 func TestReplayObservationsThroughEngine(t *testing.T) {
 	e := fingerprint.NewEngine()
-	root := fingerprint.RepoFingerprintsRoot()
-	if err := e.LoadYAMLFile(filepath.Join(root, "http", "nginx.yaml")); err != nil {
-		// nginx.yaml may be single-doc; applications.yaml is the pack
-		_ = err
+	if err := e.LoadBuiltinPacks(); err != nil {
+		t.Fatal(err)
 	}
-	_ = e.LoadBuiltinPacks(root)
 
 	obs := model.ObservationRecord{
 		ID: "replay-1", ObservationType: model.ObservationHTTP,
@@ -34,7 +30,7 @@ func TestReplayObservationsThroughEngine(t *testing.T) {
 
 func TestDevicePackCiscoTitle(t *testing.T) {
 	e := fingerprint.NewEngine()
-	_ = e.LoadBuiltinPacks(fingerprint.RepoFingerprintsRoot())
+	_ = e.LoadBuiltinPacks()
 	obs := model.ObservationRecord{ID: "d1", ObservationType: model.ObservationHTTP, CorrelationGroup: "cisco_web_ui"}
 	_ = obs.SetPayload(model.HTTPObservation{Title: "Cisco Systems Login"})
 	claims := e.Match([]model.ObservationRecord{obs})

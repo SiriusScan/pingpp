@@ -10,8 +10,8 @@
     - kind: application
       vendor: Grafana Labs
       product: Grafana
-      certainty: strong
-      score: 92
+      certainty: hint
+      score: 55
 - id: app-jenkins
   scope: application
   correlation_group: http_web_ui
@@ -24,8 +24,8 @@
     - kind: application
       vendor: Jenkins
       product: Jenkins
-      certainty: strong
-      score: 92
+      certainty: hint
+      score: 55
 - id: app-gitlab
   scope: application
   correlation_group: http_web_ui
@@ -38,8 +38,8 @@
     - kind: application
       vendor: GitLab
       product: GitLab
-      certainty: strong
-      score: 90
+      certainty: hint
+      score: 55
 - id: app-prometheus
   scope: application
   correlation_group: http_web_ui
@@ -51,8 +51,8 @@
   claims:
     - kind: application
       product: Prometheus
-      certainty: strong
-      score: 90
+      certainty: hint
+      score: 55
 - id: app-kibana
   scope: application
   correlation_group: http_web_ui
@@ -65,8 +65,8 @@
     - kind: application
       vendor: Elastic
       product: Kibana
-      certainty: strong
-      score: 90
+      certainty: hint
+      score: 55
 - id: app-elasticsearch
   scope: application
   correlation_group: http_web_ui
@@ -79,8 +79,8 @@
     - kind: application
       vendor: Elastic
       product: Elasticsearch
-      certainty: probable
-      score: 80
+      certainty: hint
+      score: 55
 - id: app-wordpress
   scope: application
   correlation_group: http_web_ui
@@ -93,8 +93,8 @@
     - kind: application
       vendor: WordPress
       product: WordPress
-      certainty: strong
-      score: 90
+      certainty: probable
+      score: 78
 - id: app-jira
   scope: application
   correlation_group: http_web_ui
@@ -107,8 +107,8 @@
     - kind: application
       vendor: Atlassian
       product: Jira
-      certainty: strong
-      score: 88
+      certainty: hint
+      score: 55
 - id: app-confluence
   scope: application
   correlation_group: http_web_ui
@@ -121,8 +121,8 @@
     - kind: application
       vendor: Atlassian
       product: Confluence
-      certainty: strong
-      score: 88
+      certainty: hint
+      score: 55
 - id: product-nginx
   scope: product
   correlation_group: http_web_server
@@ -217,8 +217,8 @@
   claims:
     - kind: application
       product: Harbor
-      certainty: strong
-      score: 90
+      certainty: hint
+      score: 55
 - id: app-nexus
   scope: application
   correlation_group: http_web_ui
@@ -231,8 +231,8 @@
     - kind: application
       vendor: Sonatype
       product: Nexus
-      certainty: probable
-      score: 78
+      certainty: hint
+      score: 55
 - id: app-jupyter
   scope: application
   correlation_group: http_web_ui
@@ -244,8 +244,8 @@
   claims:
     - kind: application
       product: Jupyter
-      certainty: strong
-      score: 88
+      certainty: hint
+      score: 55
 - id: app-kubernetes-api
   scope: application
   correlation_group: http_web_ui
@@ -258,8 +258,8 @@
     - kind: application
       vendor: Kubernetes
       product: Kubernetes API
-      certainty: probable
-      score: 75
+      certainty: hint
+      score: 55
 - id: product-openresty
   scope: product
   correlation_group: http_web_server

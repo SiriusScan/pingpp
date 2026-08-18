@@ -1,0 +1,5 @@
+observation_type: http
+payload:
+  server: nginx/1.24.0
+reject:
+  product: IIS

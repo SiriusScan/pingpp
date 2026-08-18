@@ -419,6 +419,35 @@ func (c countingCollector) Run(ctx context.Context, in engine.CollectorInput) ([
 	return nil, nil
 }
 
+func TestScanResolvedAllAddresses(t *testing.T) {
+	reg := engine.BuildDefaultRegistry(icmp.Register, tcp.Register)
+	eng, err := engine.NewEngine(engine.Options{
+		Profile:       engine.ProfileQuick,
+		SkipDiscovery: true,
+		TCPPorts:      []uint16{1},
+		RatePerSecond: 1000,
+		Registry:      reg,
+		Fingerprints:  stubMatcher{},
+		MaxNetworkOps: 4,
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+	defer cancel()
+	target := model.NewTargetHostname("multi.test", "192.0.2.10", "192.0.2.11")
+	res, err := eng.ScanResolved(ctx, target)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(res.Asset.Addresses) != 2 {
+		t.Fatalf("addresses=%v want 2", res.Asset.Addresses)
+	}
+	if len(res.Asset.Hostnames) == 0 || res.Asset.Hostnames[0] != "multi.test" {
+		t.Fatalf("hostnames=%v", res.Asset.Hostnames)
+	}
+}
+
 func TestRateLimiter(t *testing.T) {
 	l := engine.NewRateLimiter(1000)
 	done := make(chan struct{})

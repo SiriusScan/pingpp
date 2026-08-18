@@ -53,23 +53,23 @@ func ParseWappalyzerJSON(data []byte) (*Wappalyzer, error) {
 	for name, app := range raw {
 		cw := compiledWapp{name: name, headers: map[string]*regexp.Regexp{}, meta: map[string]*regexp.Regexp{}}
 		for h, pat := range app.Headers {
-			re, err := regexp.Compile("(?i)" + pat)
+			re, err := compileWappPattern("(?i)", pat)
 			if err != nil {
-				return nil, fmt.Errorf("%s header %s: %w", name, h, err)
+				continue
 			}
 			cw.headers[h] = re
 		}
 		for _, pat := range stringList(app.HTML) {
-			re, err := regexp.Compile("(?is)" + pat)
+			re, err := compileWappPattern("(?is)", pat)
 			if err != nil {
-				return nil, fmt.Errorf("%s html: %w", name, err)
+				continue
 			}
 			cw.html = append(cw.html, re)
 		}
 		for k, pat := range app.Meta {
-			re, err := regexp.Compile("(?i)" + pat)
+			re, err := compileWappPattern("(?i)", pat)
 			if err != nil {
-				return nil, fmt.Errorf("%s meta %s: %w", name, k, err)
+				continue
 			}
 			cw.meta[k] = re
 		}
@@ -79,6 +79,14 @@ func ParseWappalyzerJSON(data []byte) (*Wappalyzer, error) {
 		w.apps = append(w.apps, cw)
 	}
 	return w, nil
+}
+
+// AppCount returns compiled technology entries.
+func (w *Wappalyzer) AppCount() int {
+	if w == nil {
+		return 0
+	}
+	return len(w.apps)
 }
 
 func stringList(v any) []string {
@@ -111,16 +119,22 @@ func (w *Wappalyzer) Detect(httpObs model.HTTPObservation) ([]model.Claim, error
 			continue
 		}
 		kind := model.ClaimProduct
+		score := 88.0
+		tier := model.ConfidenceStrong
 		if len(app.html) > 0 || len(app.meta) > 0 {
 			kind = model.ClaimApplication
+		}
+		if len(app.headers) == 0 {
+			score = 75
+			tier = model.ConfidenceProbable
 		}
 		claims = append(claims, model.Claim{
 			ID:               fmt.Sprintf("wapp:%s:%s", app.name, httpObs.RawBodySHA256),
 			Kind:             kind,
 			Product:          app.name,
 			Value:            app.name,
-			Score:            88,
-			Confidence:       model.ConfidenceStrong,
+			Score:            score,
+			Confidence:       tier,
 			RuleIDs:          []string{"wappalyzer:" + app.name},
 			CorrelationGroup: "wappalyzer:" + app.name,
 		})
@@ -183,4 +197,19 @@ func (a compiledWapp) match(h model.HTTPObservation, body string) bool {
 		}
 	}
 	return matched
+}
+
+func compileWappPattern(flags, pat string) (*regexp.Regexp, error) {
+	pat = stripWappVersion(pat)
+	if pat == "" {
+		return nil, fmt.Errorf("empty pattern")
+	}
+	return regexp.Compile(flags + pat)
+}
+
+func stripWappVersion(pat string) string {
+	if i := strings.Index(pat, `\;`); i >= 0 {
+		return pat[:i]
+	}
+	return pat
 }

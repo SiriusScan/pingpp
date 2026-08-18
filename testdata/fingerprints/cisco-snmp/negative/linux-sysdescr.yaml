@@ -1,0 +1,5 @@
+observation_type: snmp
+payload:
+  sys_descr: Linux net-snmp
+reject:
+  vendor: Cisco

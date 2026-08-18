@@ -86,3 +86,84 @@ func TestWappalyzerJSONNginx(t *testing.T) {
 		t.Fatalf("claims=%+v", claims)
 	}
 }
+
+func TestRecogParamValueAttribute(t *testing.T) {
+	xml := []byte(`<fingerprints matches="ssh.banner">
+  <fingerprint pattern="OpenSSH">
+    <description>OpenSSH</description>
+    <param pos="0" name="service.vendor" value="OpenBSD"/>
+    <param pos="0" name="service.product" value="OpenSSH"/>
+  </fingerprint>
+</fingerprints>`)
+	r, err := adapters.ParseRecogXML(xml)
+	if err != nil {
+		t.Fatal(err)
+	}
+	claims, err := r.MatchField("ssh", "banner", "SSH-2.0-OpenSSH_9.6")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(claims) != 1 || claims[0].Product != "OpenSSH" || claims[0].Vendor != "OpenBSD" {
+		t.Fatalf("%+v", claims)
+	}
+}
+
+func TestRecogHTTPHeaderServerMapping(t *testing.T) {
+	xml := []byte(`<fingerprints matches="http_header.server">
+  <fingerprint pattern="^nginx">
+    <param pos="0" name="service.product" value="nginx"/>
+  </fingerprint>
+</fingerprints>`)
+	r, err := adapters.ParseRecogXML(xml)
+	if err != nil {
+		t.Fatal(err)
+	}
+	obs := model.ObservationRecord{ID: "h1", ObservationType: model.ObservationHTTP}
+	_ = obs.SetPayload(model.HTTPObservation{Server: "nginx/1.24"})
+	claims, err := r.Match([]model.ObservationRecord{obs})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(claims) != 1 || claims[0].Product != "nginx" {
+		t.Fatalf("%+v", claims)
+	}
+}
+
+func TestRecogSkipsNonRE2(t *testing.T) {
+	xml := []byte(`<fingerprints matches="ssh.banner">
+  <fingerprint pattern="(?&lt;=foo)bar">
+    <param pos="0" name="service.product" value="Bad"/>
+  </fingerprint>
+  <fingerprint pattern="OpenSSH">
+    <param pos="0" name="service.product" value="OpenSSH"/>
+  </fingerprint>
+</fingerprints>`)
+	r, err := adapters.ParseRecogXML(xml)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if r.RuleCount() != 1 {
+		t.Fatalf("rule count=%d want 1 (skip lookbehind)", r.RuleCount())
+	}
+}
+
+func TestRecogMatchesSSHSoftwareIdent(t *testing.T) {
+	xml := []byte(`<fingerprints matches="ssh.banner">
+  <fingerprint pattern="^OpenSSH_">
+    <param pos="0" name="service.product" value="OpenSSH"/>
+  </fingerprint>
+</fingerprints>`)
+	r, err := adapters.ParseRecogXML(xml)
+	if err != nil {
+		t.Fatal(err)
+	}
+	obs := model.ObservationRecord{ID: "s1", ObservationType: model.ObservationSSH}
+	_ = obs.SetPayload(model.SSHObservation{Banner: "SSH-2.0-OpenSSH_9.6"})
+	claims, err := r.Match([]model.ObservationRecord{obs})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(claims) != 1 || claims[0].Product != "OpenSSH" {
+		t.Fatalf("%+v", claims)
+	}
+}

@@ -3,13 +3,15 @@ package fingerprint_test
 import (
 	"testing"
 
+	"github.com/SiriusScan/ping++/fingerprints"
 	"github.com/SiriusScan/ping++/pkg/fingerprint"
+	"github.com/SiriusScan/ping++/pkg/fingerprint/adapters"
 	"github.com/SiriusScan/ping++/pkg/model"
 )
 
 func TestHTTPApplicationPack(t *testing.T) {
 	e := fingerprint.NewEngine()
-	if err := e.LoadBuiltinPacks(fingerprint.RepoFingerprintsRoot()); err != nil {
+	if err := e.LoadBuiltinPacks(); err != nil {
 		t.Fatal(err)
 	}
 	cases := []struct {
@@ -40,7 +42,7 @@ func TestHTTPApplicationPack(t *testing.T) {
 
 func TestAppliancePackNegativeLookalike(t *testing.T) {
 	e := fingerprint.NewEngine()
-	_ = e.LoadBuiltinPacks(fingerprint.RepoFingerprintsRoot())
+	_ = e.LoadBuiltinPacks()
 	obs := model.ObservationRecord{ID: "o2", ObservationType: model.ObservationHTTP, CorrelationGroup: "http-response:t"}
 	_ = obs.SetPayload(model.HTTPObservation{Title: "Welcome", Server: "Apache"})
 	claims := e.Match([]model.ObservationRecord{obs})
@@ -53,7 +55,7 @@ func TestAppliancePackNegativeLookalike(t *testing.T) {
 
 func TestCorrelatedHTTPServerSignals(t *testing.T) {
 	e := fingerprint.NewEngine()
-	_ = e.LoadBuiltinPacks(fingerprint.RepoFingerprintsRoot())
+	_ = e.LoadBuiltinPacks()
 	obs := model.ObservationRecord{ID: "o3", ObservationType: model.ObservationHTTP, CorrelationGroup: "http-response:same"}
 	_ = obs.SetPayload(model.HTTPObservation{Server: "nginx", Title: "nginx"})
 	claims := e.Match([]model.ObservationRecord{obs})
@@ -65,5 +67,60 @@ func TestCorrelatedHTTPServerSignals(t *testing.T) {
 	}
 	if nginxClaims != 1 {
 		t.Fatalf("expected single fused nginx claim, got %d (%+v)", nginxClaims, claims)
+	}
+}
+
+func TestLoadYAMLUnknownFieldFailsClosed(t *testing.T) {
+	e := fingerprint.NewEngine()
+	err := e.LoadYAML([]byte(`
+id: bad-rule
+scope: service
+unknown_field: nope
+matches:
+  - field: server
+    equals: nginx
+claims:
+  - kind: product
+    product: nginx
+    certainty: strong
+`))
+	if err == nil {
+		t.Fatal("expected unknown YAML field to fail closed")
+	}
+}
+
+func TestBuiltinCorpusScale(t *testing.T) {
+	data, err := fingerprints.FS.ReadFile("recog/ssh_banners.xml")
+	if err != nil {
+		t.Fatal(err)
+	}
+	rec, err := adapters.ParseRecogXML(data)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if rec.RuleCount() < 100 {
+		t.Fatalf("ssh recog rules=%d, want hundreds not two", rec.RuleCount())
+	}
+	httpXML, err := fingerprints.FS.ReadFile("recog/http_servers.xml")
+	if err != nil {
+		t.Fatal(err)
+	}
+	httpRec, err := adapters.ParseRecogXML(httpXML)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if httpRec.RuleCount() < 100 {
+		t.Fatalf("http recog rules=%d", httpRec.RuleCount())
+	}
+	wraw, err := fingerprints.FS.ReadFile("wappalyzer/technologies.json")
+	if err != nil {
+		t.Fatal(err)
+	}
+	w, err := adapters.ParseWappalyzerJSON(wraw)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if w.AppCount() < 20 {
+		t.Fatalf("wappalyzer apps=%d, still proof-of-concept scale", w.AppCount())
 	}
 }

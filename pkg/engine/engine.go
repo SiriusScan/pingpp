@@ -83,7 +83,7 @@ func NewEngine(opts Options) (*Engine, error) {
 	if fp == nil {
 		eng := fingerprint.NewEngine()
 		eng.SetArtifactStore(store)
-		if err := eng.LoadBuiltinPacks(fingerprint.RepoFingerprintsRoot()); err != nil {
+		if err := eng.LoadBuiltinPacks(); err != nil {
 			return nil, fmt.Errorf("load builtin fingerprints: %w", err)
 		}
 		if opts.FingerprintDir != "" {
@@ -115,18 +115,48 @@ type ScanResult struct {
 	State *ScanState
 }
 
-// ScanTarget resolves a target string and runs the staged pipeline.
+// ScanTarget resolves a target string and runs the staged pipeline for every A/AAAA.
 func (e *Engine) ScanTarget(ctx context.Context, raw string) (*ScanResult, error) {
 	target, err := ResolveTarget(ctx, raw)
 	if err != nil {
 		return nil, err
 	}
-	if len(target.Addresses) == 0 {
-		return nil, fmt.Errorf("no addresses for %q", raw)
-	}
+	return e.ScanResolved(ctx, target)
+}
 
-	ip := target.Addresses[0].IP
-	asset := model.NewAssetFromIP(ip)
+// ScanResolved scans every address on target, keeping Hostname for SNI/Host.
+func (e *Engine) ScanResolved(ctx context.Context, target model.Target) (*ScanResult, error) {
+	if len(target.Addresses) == 0 {
+		return nil, fmt.Errorf("no addresses for %q", target.Input)
+	}
+	if len(target.Addresses) == 1 {
+		return e.scanAddress(ctx, target, target.Addresses[0])
+	}
+	merged := &model.Asset{ID: "asset:" + target.Input}
+	if target.Hostname != "" {
+		merged.Hostnames = []string{target.Hostname}
+	}
+	var mergedState *ScanState
+	for _, addr := range target.Addresses {
+		one := target
+		one.Addresses = []model.Address{addr}
+		res, err := e.scanAddress(ctx, one, addr)
+		if err != nil {
+			return nil, err
+		}
+		mergeAsset(merged, res.Asset)
+		if mergedState == nil {
+			mergedState = res.State
+		} else {
+			mergeScanState(mergedState, res.State)
+		}
+	}
+	e.applyFingerprints(merged)
+	return &ScanResult{Asset: merged, State: mergedState}, nil
+}
+
+func (e *Engine) scanAddress(ctx context.Context, target model.Target, addr model.Address) (*ScanResult, error) {
+	asset := model.NewAssetFromIP(addr.IP)
 	if target.Hostname != "" {
 		asset.Hostnames = []string{target.Hostname}
 	}
@@ -163,10 +193,72 @@ func (e *Engine) ScanTarget(ctx context.Context, raw string) (*ScanResult, error
 	}
 
 	e.applyFingerprints(asset)
+	e.recordScanMetrics(asset, state)
 	e.mu.Lock()
 	e.syncMeterLocked(state)
 	e.mu.Unlock()
 	return &ScanResult{Asset: asset, State: state}, nil
+}
+
+func mergeAsset(dst, src *model.Asset) {
+	if dst == nil || src == nil {
+		return
+	}
+	for _, a := range src.Addresses {
+		found := false
+		for _, e := range dst.Addresses {
+			if e.IP == a.IP {
+				found = true
+				break
+			}
+		}
+		if !found {
+			dst.Addresses = append(dst.Addresses, a)
+		}
+	}
+	for _, h := range src.Hostnames {
+		dup := false
+		for _, e := range dst.Hostnames {
+			if e == h {
+				dup = true
+				break
+			}
+		}
+		if !dup {
+			dst.Hostnames = append(dst.Hostnames, h)
+		}
+	}
+	for _, ep := range src.Endpoints {
+		dst.AddEndpoint(ep)
+	}
+	for _, o := range src.Observations {
+		dst.AddObservation(o)
+	}
+	for _, c := range src.Claims {
+		if c.Kind == model.ClaimProtocol {
+			dst.AddClaim(c)
+		}
+	}
+}
+
+func mergeScanState(dst, src *ScanState) {
+	if dst == nil || src == nil {
+		return
+	}
+	dst.Budget.ProbesUsed += src.Budget.ProbesUsed
+	dst.Budget.NetworkOps += src.Budget.NetworkOps
+	dst.Budget.BytesUsed += src.Budget.BytesUsed
+	if src.Reachability.State == model.ReachabilityConfirmed {
+		dst.Reachability.State = model.ReachabilityConfirmed
+	} else if dst.Reachability.State == model.ReachabilityUnknown {
+		dst.Reachability.State = src.Reachability.State
+	}
+	for k, v := range src.Completed {
+		if dst.Completed == nil {
+			dst.Completed = map[string]bool{}
+		}
+		dst.Completed[k] = v
+	}
 }
 
 func (e *Engine) runTasks(ctx context.Context, tasks []Task, asset *model.Asset, target *model.Target, state *ScanState) error {
@@ -253,8 +345,13 @@ func (e *Engine) runTask(ctx context.Context, task Task, asset *model.Asset, sta
 	key := task.CollectorID
 	if task.Endpoint != nil {
 		key = task.CollectorID + ":" + task.Endpoint.Key()
+	} else {
+		key = hostCollectorKey(task.CollectorID, task.Target)
 	}
 	state.MarkComplete(key)
+	if e.metrics != nil {
+		e.metrics.RecordCollector(string(result.Outcome))
+	}
 
 	if err != nil {
 		if result.Outcome == "" {
@@ -380,6 +477,62 @@ func (e *Engine) applyFingerprints(asset *model.Asset) {
 		for _, c := range asset.Claims {
 			if len(c.ContradictionIDs) > 0 {
 				e.metrics.RecordConflict()
+			}
+		}
+	}
+}
+
+func (e *Engine) recordScanMetrics(asset *model.Asset, state *ScanState) {
+	if e == nil || e.metrics == nil || asset == nil {
+		return
+	}
+	for _, ep := range asset.Endpoints {
+		if ep.State == model.EndpointUnknown || ep.State == model.EndpointFiltered {
+			e.metrics.RecordUnknownEndpoint()
+		}
+	}
+	if state != nil && state.Meter != nil {
+		_, _, read, _ := state.Meter.Snapshot()
+		e.metrics.RecordBytes(read)
+	}
+	seenConflict := map[string]bool{}
+	for _, c := range asset.Claims {
+		if c.Kind != model.ClaimProtocol {
+			e.metrics.RecordClaimTier(string(c.Confidence))
+		}
+		if len(c.ContradictionIDs) > 0 && !seenConflict[c.ID] {
+			seenConflict[c.ID] = true
+			e.metrics.RecordConflict()
+		}
+	}
+	e.recordUnmatchedBanners(asset)
+}
+
+func (e *Engine) recordUnmatchedBanners(asset *model.Asset) {
+	used := map[string]bool{}
+	for _, c := range asset.Claims {
+		if c.Kind == model.ClaimProduct || c.Kind == model.ClaimApplication || c.Kind == model.ClaimDevice {
+			for _, id := range c.EvidenceIDs {
+				used[id] = true
+			}
+		}
+	}
+	for _, o := range asset.Observations {
+		if used[o.ID] {
+			continue
+		}
+		switch o.ObservationType {
+		case model.ObservationSSH:
+			var p model.SSHObservation
+			_ = o.DecodePayload(&p)
+			if p.Banner != "" {
+				e.metrics.RecordUnmatchedBanner(p.Banner)
+			}
+		case model.ObservationBanner:
+			var p model.BannerObservation
+			_ = o.DecodePayload(&p)
+			if p.Text != "" {
+				e.metrics.RecordUnmatchedBanner(p.Text)
 			}
 		}
 	}

@@ -1,0 +1,5 @@
+observation_type: http
+payload:
+  server: Apache/2.4.58
+reject:
+  product: Traefik

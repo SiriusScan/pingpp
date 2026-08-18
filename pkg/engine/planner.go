@@ -39,7 +39,7 @@ func (p *Planner) PlanDiscovery(asset *model.Asset, target *model.Target, state 
 	}
 	var tasks []Task
 	for _, id := range p.profile.DiscoveryCollectors {
-		if state != nil && state.IsComplete(id) {
+		if state != nil && state.IsComplete(hostCollectorKey(id, target)) {
 			continue
 		}
 		if !p.registry.Has(id) {
@@ -64,7 +64,7 @@ func (p *Planner) PlanEnumeration(asset *model.Asset, target *model.Target, stat
 		if id != "enumerate.tcp" && id != "enumerate.udp" {
 			continue
 		}
-		if state != nil && state.IsComplete(id) {
+		if state != nil && state.IsComplete(hostCollectorKey(id, target)) {
 			continue
 		}
 		if !p.registry.Has(id) {
@@ -228,6 +228,13 @@ func (p *Planner) taskIfAvailable(asset *model.Asset, ep *model.Endpoint, state 
 		Stage:       stage,
 		Priority:    md.Priority + p.portPriorBoost(ep, id),
 	}, true
+}
+
+func hostCollectorKey(id string, target *model.Target) string {
+	if target != nil && len(target.Addresses) > 0 && target.Addresses[0].IP != "" {
+		return id + ":" + target.Addresses[0].IP
+	}
+	return id
 }
 
 func collectorProtocol(collectorID string) string {

@@ -1,90 +1,128 @@
-// Package metrics defines fingerprint quality instrumentation hooks.
+// Package metrics defines runtime scan instrumentation.
+// Ground-truth precision (exact/strong correct) lives in pkg/metrics/eval,
+// not on the scan path.
 package metrics
 
 import "sync"
 
-// Counters tracks precision-oriented fingerprint metrics.
+// Counters tracks runtime scan activity. It must not require ground truth.
 type Counters struct {
 	mu sync.Mutex
 
-	ExactTotal, ExactCorrect       int64
-	StrongTotal, StrongCorrect     int64
-	ProbableTotal, ProbableCorrect int64
-	UnknownRateSamples             int64
-	UnknownCount                   int64
-	ConflictCount                  int64
-	ProbesTotal                    int64
-	BytesTotal                     int64
-	ResolvedEndpoints              int64
+	CollectorsExecuted int64
+	ProtocolMatches    int64
+	Timeouts           int64
+	BytesTotal         int64
+	UnknownEndpoints   int64
+	ClaimExact         int64
+	ClaimStrong        int64
+	ClaimProbable      int64
+	ClaimHint          int64
+	ConflictCount      int64
+	UnmatchedBanners   int64
+	unmatched          []string
 }
 
-// RecordClaimOutcome records whether a claim at a tier was correct.
-func (c *Counters) RecordClaimOutcome(tier string, correct bool) {
+// RecordCollector records that a collector finished with the given outcome.
+func (c *Counters) RecordCollector(outcome string) {
+	if c == nil {
+		return
+	}
+	c.mu.Lock()
+	defer c.mu.Unlock()
+	c.CollectorsExecuted++
+	switch outcome {
+	case "success":
+		c.ProtocolMatches++
+	case "timeout":
+		c.Timeouts++
+	}
+}
+
+// RecordBytes adds payload bytes observed by the meter.
+func (c *Counters) RecordBytes(n int64) {
+	if c == nil || n <= 0 {
+		return
+	}
+	c.mu.Lock()
+	defer c.mu.Unlock()
+	c.BytesTotal += n
+}
+
+// RecordUnknownEndpoint increments the unknown-endpoint counter.
+func (c *Counters) RecordUnknownEndpoint() {
+	if c == nil {
+		return
+	}
+	c.mu.Lock()
+	defer c.mu.Unlock()
+	c.UnknownEndpoints++
+}
+
+// RecordClaimTier counts fused claims by qualitative tier.
+func (c *Counters) RecordClaimTier(tier string) {
+	if c == nil {
+		return
+	}
 	c.mu.Lock()
 	defer c.mu.Unlock()
 	switch tier {
 	case "exact":
-		c.ExactTotal++
-		if correct {
-			c.ExactCorrect++
-		}
+		c.ClaimExact++
 	case "strong":
-		c.StrongTotal++
-		if correct {
-			c.StrongCorrect++
-		}
+		c.ClaimStrong++
 	case "probable":
-		c.ProbableTotal++
-		if correct {
-			c.ProbableCorrect++
-		}
+		c.ClaimProbable++
+	case "hint":
+		c.ClaimHint++
 	}
 }
 
-// RecordUnknown tracks unknown rate samples.
-func (c *Counters) RecordUnknown(unknown bool) {
+// RecordUnmatchedBanner keeps a short dump of banners with no product claim.
+func (c *Counters) RecordUnmatchedBanner(banner string) {
+	if c == nil || banner == "" {
+		return
+	}
 	c.mu.Lock()
 	defer c.mu.Unlock()
-	c.UnknownRateSamples++
-	if unknown {
-		c.UnknownCount++
+	c.UnmatchedBanners++
+	if len(c.unmatched) < 64 {
+		c.unmatched = append(c.unmatched, banner)
 	}
 }
 
-// RecordEffort tracks probes/bytes per resolved endpoint.
-func (c *Counters) RecordEffort(probes int, bytes int64, resolved bool) {
+// UnmatchedBannerDump returns recorded unmatched banners for corpus work.
+func (c *Counters) UnmatchedBannerDump() []string {
+	if c == nil {
+		return nil
+	}
 	c.mu.Lock()
 	defer c.mu.Unlock()
-	c.ProbesTotal += int64(probes)
-	c.BytesTotal += bytes
-	if resolved {
-		c.ResolvedEndpoints++
-	}
+	out := make([]string, len(c.unmatched))
+	copy(out, c.unmatched)
+	return out
 }
 
 // Snapshot returns a copy of counters for reporting.
 func (c *Counters) Snapshot() map[string]float64 {
+	if c == nil {
+		return map[string]float64{}
+	}
 	c.mu.Lock()
 	defer c.mu.Unlock()
-	out := map[string]float64{}
-	if c.ExactTotal > 0 {
-		out["p_correct_exact"] = float64(c.ExactCorrect) / float64(c.ExactTotal)
+	return map[string]float64{
+		"collectors_executed": float64(c.CollectorsExecuted),
+		"protocol_matches":    float64(c.ProtocolMatches),
+		"timeouts":            float64(c.Timeouts),
+		"bytes_total":         float64(c.BytesTotal),
+		"unknown_endpoints":   float64(c.UnknownEndpoints),
+		"claim_exact":         float64(c.ClaimExact),
+		"claim_strong":        float64(c.ClaimStrong),
+		"claim_probable":      float64(c.ClaimProbable),
+		"claim_hint":          float64(c.ClaimHint),
+		"conflict_count":      float64(c.ConflictCount),
+		"unmatched_banners":   float64(c.UnmatchedBanners),
 	}
-	if c.StrongTotal > 0 {
-		out["p_correct_strong"] = float64(c.StrongCorrect) / float64(c.StrongTotal)
-	}
-	if c.ProbableTotal > 0 {
-		out["p_correct_probable"] = float64(c.ProbableCorrect) / float64(c.ProbableTotal)
-	}
-	if c.UnknownRateSamples > 0 {
-		out["unknown_rate"] = float64(c.UnknownCount) / float64(c.UnknownRateSamples)
-	}
-	if c.ResolvedEndpoints > 0 {
-		out["mean_probes_per_resolved"] = float64(c.ProbesTotal) / float64(c.ResolvedEndpoints)
-		out["mean_bytes_per_resolved"] = float64(c.BytesTotal) / float64(c.ResolvedEndpoints)
-	}
-	out["conflict_count"] = float64(c.ConflictCount)
-	return out
 }
 
 // RecordConflict increments the runtime conflict counter.

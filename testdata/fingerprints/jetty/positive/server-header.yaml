@@ -1,0 +1,6 @@
+observation_type: http
+payload:
+  server: Jetty(12.0)
+expect:
+  product: Jetty
+  min_confidence: strong

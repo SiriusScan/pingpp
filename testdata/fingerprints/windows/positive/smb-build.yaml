@@ -1,0 +1,6 @@
+observation_type: smb
+payload:
+  os_build: "10.0.19045"
+expect:
+  product: Windows
+  min_confidence: strong

@@ -1,51 +1,74 @@
 package fingerprint
 
 import (
-	"os"
-	"path/filepath"
-	"runtime"
+	"errors"
+	"fmt"
+	"io/fs"
 
+	"github.com/SiriusScan/ping++/fingerprints"
 	"github.com/SiriusScan/ping++/pkg/fingerprint/adapters"
 )
 
-// LoadBuiltinPacks loads YAML fingerprint packs and Recog/Wappalyzer corpora.
-// Missing optional directories are ignored; parse errors fail closed.
-func (e *Engine) LoadBuiltinPacks(root string) error {
-	dirs := []string{
-		filepath.Join(root, "http"),
-		filepath.Join(root, "ssh"),
-		filepath.Join(root, "devices"),
-		filepath.Join(root, "os"),
-		filepath.Join(root, "services"),
-		filepath.Join(root, "recog"),
-	}
-	for _, d := range dirs {
-		if err := e.LoadDir(d); err != nil && !os.IsNotExist(err) {
-			return err
-		}
-	}
-	if rec, err := adapters.LoadRecogXML(filepath.Join(root, "recog", "ssh.xml")); err != nil {
-		if !os.IsNotExist(err) {
-			return err
-		}
-	} else {
-		e.AddAdapter(rec)
-	}
-	if w, err := adapters.LoadWappalyzerJSON(filepath.Join(root, "wappalyzer", "technologies.json")); err != nil {
-		if !os.IsNotExist(err) {
-			return err
-		}
-	} else {
-		e.AddAdapter(w)
-	}
-	return nil
+// LoadBuiltinPacks loads YAML packs and Recog/Wappalyzer corpora from the
+// embedded filesystem. A released binary does not need the source tree.
+func (e *Engine) LoadBuiltinPacks() error {
+	return e.LoadFS(fingerprints.FS)
 }
 
-// RepoFingerprintsRoot returns the fingerprints/ directory relative to this package.
-func RepoFingerprintsRoot() string {
-	_, file, _, ok := runtime.Caller(0)
-	if !ok {
-		return "fingerprints"
+// LoadFS loads YAML, Recog XML, and Wappalyzer JSON from an fs.FS.
+// Parse errors fail closed. Individual Recog regexes that are not RE2 are skipped by the XML parser.
+func (e *Engine) LoadFS(fsys fs.FS) error {
+	if e == nil {
+		return fmt.Errorf("nil engine")
 	}
-	return filepath.Clean(filepath.Join(filepath.Dir(file), "..", "..", "fingerprints"))
+	yamlGlobs := []string{
+		"http/*.yaml", "http/*.yml",
+		"ssh/*.yaml", "ssh/*.yml",
+		"devices/*.yaml", "devices/*.yml",
+		"os/*.yaml", "os/*.yml",
+		"services/*.yaml", "services/*.yml",
+	}
+	for _, g := range yamlGlobs {
+		matches, err := fs.Glob(fsys, g)
+		if err != nil {
+			return err
+		}
+		for _, p := range matches {
+			data, err := fs.ReadFile(fsys, p)
+			if err != nil {
+				return err
+			}
+			if err := e.LoadYAML(data); err != nil {
+				return fmt.Errorf("%s: %w", p, err)
+			}
+		}
+	}
+	xmlMatches, err := fs.Glob(fsys, "recog/*.xml")
+	if err != nil {
+		return err
+	}
+	for _, p := range xmlMatches {
+		data, err := fs.ReadFile(fsys, p)
+		if err != nil {
+			return err
+		}
+		rec, err := adapters.ParseRecogXML(data)
+		if err != nil {
+			return fmt.Errorf("%s: %w", p, err)
+		}
+		e.AddAdapter(rec)
+	}
+	data, err := fs.ReadFile(fsys, "wappalyzer/technologies.json")
+	if err != nil {
+		if errors.Is(err, fs.ErrNotExist) {
+			return nil
+		}
+		return err
+	}
+	w, err := adapters.ParseWappalyzerJSON(data)
+	if err != nil {
+		return fmt.Errorf("wappalyzer/technologies.json: %w", err)
+	}
+	e.AddAdapter(w)
+	return nil
 }

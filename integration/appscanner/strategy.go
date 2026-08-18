@@ -23,10 +23,10 @@ type FingerprintResult struct {
 
 // PingPlusPlusStrategy implements FingerprintStrategy using the new engine when possible.
 type PingPlusPlusStrategy struct {
-	ProbeTypes  []string
-	Timeout     time.Duration
-	DisableICMP bool
-	UseEngine   bool
+	ProbeTypes      []string
+	Timeout         time.Duration
+	DisableICMP     bool
+	UseLegacyRunner bool
 }
 
 // NewStrategy creates a strategy with defaults.
@@ -34,38 +34,34 @@ func NewStrategy() *PingPlusPlusStrategy {
 	return &PingPlusPlusStrategy{
 		ProbeTypes: []string{"icmp", "tcp"},
 		Timeout:    3 * time.Second,
-		UseEngine:  true,
 	}
 }
 
 // NewStrategyWithOptions creates a strategy with custom options.
 func NewStrategyWithOptions(probeTypes []string, timeout time.Duration, disableICMP bool) *PingPlusPlusStrategy {
-	return &PingPlusPlusStrategy{ProbeTypes: probeTypes, Timeout: timeout, DisableICMP: disableICMP, UseEngine: true}
+	return &PingPlusPlusStrategy{ProbeTypes: probeTypes, Timeout: timeout, DisableICMP: disableICMP}
 }
 
 // Fingerprint performs host fingerprinting on the target.
 func (p *PingPlusPlusStrategy) Fingerprint(target string) (FingerprintResult, error) {
-	if p.UseEngine {
-		return p.fingerprintEngine(target)
+	if p.UseLegacyRunner {
+		return p.fingerprintLegacyRunner(target)
 	}
-	return p.fingerprintLegacyRunner(target)
+	return p.fingerprintEngine(target)
 }
 
 func (p *PingPlusPlusStrategy) fingerprintEngine(target string) (FingerprintResult, error) {
 	result := FingerprintResult{Details: map[string]string{}}
-	reg := scan.NewRegistry()
-	eng, err := engine.NewEngine(engine.Options{
-		Profile:       engine.ProfileQuick,
-		SkipDiscovery: p.DisableICMP,
-		RatePerSecond: 200,
-		Registry:      reg,
-	})
-	if err != nil {
-		return result, err
-	}
 	ctx, cancel := context.WithTimeout(context.Background(), p.Timeout*5)
 	defer cancel()
-	res, err := eng.ScanTarget(ctx, target)
+	res, err := scan.Scan(ctx, target, scan.ScanOptions{
+		Options: engine.Options{
+			Profile:       engine.ProfileQuick,
+			SkipDiscovery: p.DisableICMP,
+			RatePerSecond: 200,
+		},
+		Timeout: p.Timeout * 5,
+	})
 	if err != nil {
 		return result, err
 	}

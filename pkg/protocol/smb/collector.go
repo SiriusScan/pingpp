@@ -72,11 +72,7 @@ func (c *Collector) RunResult(ctx context.Context, in engine.CollectorInput) (en
 	payload := model.SMBObservation{}
 	if err != nil {
 		errStr := err.Error()
-		authRelated := strings.Contains(errStr, "STATUS_ACCESS_DENIED") ||
-			strings.Contains(errStr, "STATUS_LOGON_FAILURE") ||
-			strings.Contains(errStr, "Logon failed") ||
-			strings.Contains(errStr, "signing")
-		if !authRelated {
+		if !SMBProtocolEvidence(errStr) {
 			obs.Error = errStr
 			obs.Completeness = "none"
 			out := engine.OutcomeFromError(err)
@@ -99,6 +95,23 @@ func (c *Collector) RunResult(ctx context.Context, in engine.CollectorInput) (en
 		return engine.CollectorResult{}, err
 	}
 	return engine.CollectorResult{Outcome: engine.OutcomeSuccess, Protocol: "smb", Observations: []model.ObservationRecord{obs}}, nil
+}
+
+// SMBProtocolEvidence reports whether an error still proves SMB was reached
+// (auth denied, logon failure, or signing required) rather than a lookalike.
+func SMBProtocolEvidence(errStr string) bool {
+	if errStr == "" {
+		return false
+	}
+	u := strings.ToUpper(errStr)
+	if strings.Contains(u, "STATUS_ACCESS_DENIED") ||
+		strings.Contains(u, "STATUS_LOGON_FAILURE") ||
+		strings.Contains(u, "STATUS_ACCOUNT_DISABLED") ||
+		strings.Contains(u, "STATUS_LOGON_TYPE_NOT_GRANTED") {
+		return true
+	}
+	l := strings.ToLower(errStr)
+	return strings.Contains(l, "logon failed") || strings.Contains(l, "signing")
 }
 
 func fillSMB(session *gosmb.Connection, payload *model.SMBObservation) {

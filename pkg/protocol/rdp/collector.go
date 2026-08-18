@@ -2,6 +2,7 @@ package rdp
 
 import (
 	"context"
+	"encoding/binary"
 	"fmt"
 	"io"
 	"time"
@@ -13,11 +14,21 @@ import (
 
 const id = "collect.rdp"
 
+const (
+	protoRDP      uint32 = 0x00000000
+	protoSSL      uint32 = 0x00000001
+	protoHybrid   uint32 = 0x00000002
+	protoHybridEx uint32 = 0x00000008
+)
+
 type Collector struct{ timeout time.Duration }
+
 type Observation struct {
-	Negotiated bool   `json:"negotiated"`
-	Protocol   string `json:"protocol,omitempty"`
-	RawHint    string `json:"raw_hint,omitempty"`
+	Negotiated        bool   `json:"negotiated"`
+	X224Confirm       bool   `json:"x224_confirm,omitempty"`
+	SelectedProtocol  string `json:"selected_protocol,omitempty"`
+	SelectedProtocolN uint32 `json:"selected_protocol_n,omitempty"`
+	Failure           bool   `json:"failure,omitempty"`
 }
 
 func New(cfg engine.Config) (*Collector, error) {
@@ -30,6 +41,7 @@ func (c *Collector) Run(ctx context.Context, in engine.CollectorInput) ([]model.
 	res, err := c.RunResult(ctx, in)
 	return res.Observations, err
 }
+
 func (c *Collector) RunResult(ctx context.Context, in engine.CollectorInput) (engine.CollectorResult, error) {
 	if in.Endpoint == nil {
 		return engine.CollectorResult{}, fmt.Errorf("rdp: endpoint required")
@@ -47,37 +59,105 @@ func (c *Collector) RunResult(ctx context.Context, in engine.CollectorInput) (en
 	}
 	defer func() { _ = conn.Close() }()
 	_ = conn.SetDeadline(time.Now().Add(c.timeout))
-	pkt := []byte{
-		0x03, 0x00, 0x00, 0x13,
-		0x0e, 0xe0, 0x00, 0x00, 0x00, 0x00, 0x00,
-		0x01, 0x00, 0x08, 0x00, 0x00, 0x00, 0x00, 0x00,
-	}
-	_, _ = conn.Write(pkt)
-	buf := make([]byte, 64)
-	n, err := io.ReadFull(conn, buf[:4])
-	payload := Observation{}
-	if err == nil && n >= 4 && buf[0] == 0x03 {
-		rest := int(buf[2])<<8 | int(buf[3])
-		if rest > 4 && rest < len(buf) {
-			_, _ = io.ReadFull(conn, buf[4:rest])
-			n = rest
-		}
-		payload.Negotiated = true
-		payload.Protocol = "rdp"
-		payload.RawHint = fmt.Sprintf("len=%d", n)
-		obs.Completeness = "full"
-		_ = obs.SetPayload(payload)
-		return engine.CollectorResult{Outcome: engine.OutcomeSuccess, Protocol: "rdp", Observations: []model.ObservationRecord{obs}}, nil
-	}
-	obs.Completeness = "none"
-	if err != nil {
+	if _, err := conn.Write(x224ConnectionRequest()); err != nil {
 		obs.Error = err.Error()
-	} else {
-		obs.Error = "not tpkt"
+		obs.Completeness = "none"
+		return engine.CollectorResult{Outcome: engine.OutcomeNoMatch, Protocol: "rdp", Observations: []model.ObservationRecord{obs}}, nil
 	}
+	hdr := make([]byte, 4)
+	if _, err := io.ReadFull(conn, hdr); err != nil {
+		obs.Completeness = "none"
+		obs.Error = err.Error()
+		return engine.CollectorResult{Outcome: engine.OutcomeNoMatch, Protocol: "rdp", Observations: []model.ObservationRecord{obs}}, nil
+	}
+	if hdr[0] != 0x03 {
+		obs.Error = "not tpkt"
+		obs.Completeness = "none"
+		return engine.CollectorResult{Outcome: engine.OutcomeNoMatch, Protocol: "rdp", Observations: []model.ObservationRecord{obs}}, nil
+	}
+	total := int(binary.BigEndian.Uint16(hdr[2:4]))
+	if total < 7 || total > 4096 {
+		obs.Error = "bad tpkt length"
+		obs.Completeness = "none"
+		return engine.CollectorResult{Outcome: engine.OutcomeNoMatch, Protocol: "rdp", Observations: []model.ObservationRecord{obs}}, nil
+	}
+	rest := make([]byte, total-4)
+	if _, err := io.ReadFull(conn, rest); err != nil {
+		obs.Error = "short rdp pdu"
+		obs.Completeness = "none"
+		return engine.CollectorResult{Outcome: engine.OutcomeNoMatch, Protocol: "rdp", Observations: []model.ObservationRecord{obs}}, nil
+	}
+	payload, ok := parseNegotiation(append(hdr, rest...))
+	if !ok {
+		obs.Error = "not x.224 confirm"
+		obs.Completeness = "none"
+		_ = obs.SetPayload(payload)
+		return engine.CollectorResult{Outcome: engine.OutcomeNoMatch, Protocol: "rdp", Observations: []model.ObservationRecord{obs}}, nil
+	}
+	obs.Completeness = "full"
 	_ = obs.SetPayload(payload)
-	return engine.CollectorResult{Outcome: engine.OutcomeNoMatch, Protocol: "rdp", Observations: []model.ObservationRecord{obs}}, nil
+	return engine.CollectorResult{Outcome: engine.OutcomeSuccess, Protocol: "rdp", Observations: []model.ObservationRecord{obs}}, nil
 }
+
+func x224ConnectionRequest() []byte {
+	cookie := []byte("Cookie: mstshash=pingpp\r\n")
+	neg := []byte{0x01, 0x00, 0x08, 0x00, 0x0b, 0x00, 0x00, 0x00} // TYPE_RDP_NEG_REQ, SSL|HYBRID|HYBRID_EX
+	x224Data := []byte{0xe0, 0x00, 0x00, 0x00, 0x00, 0x00}
+	x224Data = append(x224Data, cookie...)
+	x224Data = append(x224Data, neg...)
+	li := byte(len(x224Data) + 1)
+	x224 := append([]byte{li}, x224Data...)
+	total := 4 + len(x224)
+	tpkt := make([]byte, total)
+	tpkt[0] = 0x03
+	binary.BigEndian.PutUint16(tpkt[2:4], uint16(total))
+	copy(tpkt[4:], x224)
+	return tpkt
+}
+
+func parseNegotiation(pkt []byte) (Observation, bool) {
+	var out Observation
+	if len(pkt) < 11 || pkt[0] != 0x03 || pkt[5] != 0xd0 {
+		return out, false
+	}
+	out.X224Confirm = true
+	out.Negotiated = true
+	// TPKT (4) + LI (1) + CC header (0xD0, dst-ref, src-ref, class) = 11.
+	// RDP Negotiation Response lives in the X.224 user-data that follows.
+	neg := pkt[11:]
+	if len(neg) >= 8 {
+		switch neg[0] {
+		case 0x02: // TYPE_RDP_NEG_RSP
+			sel := binary.LittleEndian.Uint32(neg[4:8])
+			out.SelectedProtocolN = sel
+			out.SelectedProtocol = protocolName(sel)
+		case 0x03: // TYPE_RDP_NEG_FAILURE
+			out.Failure = true
+			out.SelectedProtocol = "failure"
+		default:
+			out.SelectedProtocol = "rdp"
+			out.SelectedProtocolN = protoRDP
+		}
+	} else {
+		out.SelectedProtocol = "rdp"
+		out.SelectedProtocolN = protoRDP
+	}
+	return out, true
+}
+
+func protocolName(n uint32) string {
+	switch {
+	case n&protoHybridEx != 0:
+		return "hybrid_ex"
+	case n&protoHybrid != 0:
+		return "hybrid"
+	case n&protoSSL != 0:
+		return "ssl"
+	default:
+		return "rdp"
+	}
+}
+
 func Register(r *engine.Registry) {
 	r.MustRegister(id, func(cfg engine.Config) (engine.Collector, error) { return New(cfg) })
 }

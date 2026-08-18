@@ -5,6 +5,7 @@
 package fingerprint
 
 import (
+	"bytes"
 	"encoding/json"
 	"fmt"
 	"os"
@@ -104,10 +105,12 @@ func (e *Engine) LoadYAMLFile(path string) error {
 	return e.LoadYAML(data)
 }
 
-// LoadYAML parses rule(s) from YAML bytes.
+// LoadYAML parses rule(s) from YAML bytes. Unknown fields fail closed.
 func (e *Engine) LoadYAML(data []byte) error {
+	dec := yaml.NewDecoder(bytes.NewReader(data))
+	dec.KnownFields(true)
 	var many []Rule
-	if err := yaml.Unmarshal(data, &many); err == nil && len(many) > 0 && many[0].ID != "" {
+	if err := dec.Decode(&many); err == nil && len(many) > 0 && many[0].ID != "" {
 		for _, r := range many {
 			if err := e.AddRule(r); err != nil {
 				return err
@@ -115,11 +118,25 @@ func (e *Engine) LoadYAML(data []byte) error {
 		}
 		return nil
 	}
+	dec = yaml.NewDecoder(bytes.NewReader(data))
+	dec.KnownFields(true)
 	var one Rule
-	if err := yaml.Unmarshal(data, &one); err != nil {
+	if err := dec.Decode(&one); err != nil {
 		return err
 	}
 	return e.AddRule(one)
+}
+
+// YAMLRules returns compiled native YAML rules (not adapter corpora).
+func (e *Engine) YAMLRules() []Rule {
+	if e == nil {
+		return nil
+	}
+	out := make([]Rule, 0, len(e.rules))
+	for _, cr := range e.rules {
+		out = append(out, cr.rule)
+	}
+	return out
 }
 
 // LoadDir loads all .yaml/.yml files from a directory (non-recursive).
@@ -235,13 +252,23 @@ func (e *Engine) Match(observations []model.ObservationRecord) []model.Claim {
 		}
 	}
 	for _, a := range e.adapters {
-		claims, err := a.Match(hydrated)
+		claims, err := matchAdapter(a, hydrated)
 		if err != nil {
 			continue
 		}
 		raw = append(raw, claims...)
 	}
 	return Compose(raw)
+}
+
+func matchAdapter(a adapters.FingerprintAdapter, obs []model.ObservationRecord) (claims []model.Claim, err error) {
+	defer func() {
+		if rec := recover(); rec != nil {
+			err = fmt.Errorf("adapter %s panic: %v", a.Name(), rec)
+			claims = nil
+		}
+	}()
+	return a.Match(obs)
 }
 
 func (e *Engine) hydrate(obs model.ObservationRecord) model.ObservationRecord {
@@ -338,11 +365,12 @@ func matchCond(c compiledCond, fields map[string]string) bool {
 }
 
 // flattenObservation projects observation payload fields into a flat string map.
-func flattenObservation(obs model.ObservationRecord) map[string]string {
-	out := map[string]string{
+func flattenObservation(obs model.ObservationRecord) (out map[string]string) {
+	out = map[string]string{
 		"observation_type": obs.ObservationType,
 		"probe_id":         obs.ProbeID,
 	}
+	defer func() { _ = recover() }()
 	if len(obs.Payload) == 0 {
 		return out
 	}

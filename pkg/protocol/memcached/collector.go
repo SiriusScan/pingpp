@@ -17,7 +17,6 @@ const id = "collect.memcached"
 type Collector struct{ timeout time.Duration }
 type Observation struct {
 	Version string `json:"version,omitempty"`
-	Stats   bool   `json:"stats,omitempty"`
 }
 
 func New(cfg engine.Config) (*Collector, error) {
@@ -27,8 +26,12 @@ func (c *Collector) Metadata() engine.CollectorMetadata {
 	return engine.CollectorMetadata{ID: id, Stage: engine.StageCollect, Transports: []model.Transport{model.TransportTCP}, DefaultPorts: []uint16{11211}, Cost: 1, Priority: 45, SideEffectRisk: "low", SafeForOT: true}
 }
 func (c *Collector) Run(ctx context.Context, in engine.CollectorInput) ([]model.ObservationRecord, error) {
+	res, err := c.RunResult(ctx, in)
+	return res.Observations, err
+}
+func (c *Collector) RunResult(ctx context.Context, in engine.CollectorInput) (engine.CollectorResult, error) {
 	if in.Endpoint == nil {
-		return nil, fmt.Errorf("memcached: endpoint required")
+		return engine.CollectorResult{}, fmt.Errorf("memcached: endpoint required")
 	}
 	ref := in.Endpoint.Ref()
 	obs := model.ObservationRecord{ID: fmt.Sprintf("obs:memcached:%d", time.Now().UnixNano()), ProbeID: id, ObservationType: "memcached", Endpoint: &ref, Timestamp: time.Now().UTC(), CorrelationGroup: fmt.Sprintf("memcached:%s:%d", in.Endpoint.Address, in.Endpoint.Port)}
@@ -39,28 +42,26 @@ func (c *Collector) Run(ctx context.Context, in engine.CollectorInput) ([]model.
 	if err != nil {
 		obs.Error = err.Error()
 		obs.Completeness = "none"
-		return []model.ObservationRecord{obs}, nil
+		return engine.CollectorResult{Outcome: engine.OutcomeFromError(err), Protocol: "memcached", Observations: []model.ObservationRecord{obs}}, nil
 	}
 	defer func() { _ = conn.Close() }()
 	_ = conn.SetDeadline(time.Now().Add(c.timeout))
 	_, _ = conn.Write([]byte("version\r\n"))
-	br := bufio.NewReader(conn)
-	line, _ := br.ReadString('\n')
-	payload := Observation{}
-	if strings.HasPrefix(strings.ToUpper(line), "VERSION") {
-		payload.Version = strings.TrimSpace(strings.TrimPrefix(strings.TrimSpace(line), "VERSION"))
-		payload.Version = strings.TrimSpace(strings.TrimPrefix(strings.ToUpper(strings.TrimSpace(line)), "VERSION"))
-		parts := strings.Fields(strings.TrimSpace(line))
-		if len(parts) > 1 {
-			payload.Version = parts[1]
-		}
-		obs.Completeness = "full"
-	} else {
+	line, _ := bufio.NewReader(conn).ReadString('\n')
+	line = strings.TrimSpace(line)
+	if !strings.HasPrefix(strings.ToUpper(line), "VERSION") {
+		obs.Error = "not memcached version"
 		obs.Completeness = "none"
-		obs.Error = "not memcached"
+		return engine.CollectorResult{Outcome: engine.OutcomeNoMatch, Protocol: "memcached", Observations: []model.ObservationRecord{obs}}, nil
 	}
+	payload := Observation{}
+	parts := strings.Fields(line)
+	if len(parts) > 1 {
+		payload.Version = parts[1]
+	}
+	obs.Completeness = "full"
 	_ = obs.SetPayload(payload)
-	return []model.ObservationRecord{obs}, nil
+	return engine.CollectorResult{Outcome: engine.OutcomeSuccess, Protocol: "memcached", Observations: []model.ObservationRecord{obs}}, nil
 }
 func Register(r *engine.Registry) {
 	r.MustRegister(id, func(cfg engine.Config) (engine.Collector, error) { return New(cfg) })

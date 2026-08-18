@@ -92,7 +92,7 @@ func (c *Collector) RunResult(ctx context.Context, in engine.CollectorInput) (en
 	if strings.HasPrefix(payload.Banner, "SSH-") {
 		_, _ = conn.Write([]byte("SSH-2.0-pingpp_0.1\r\n"))
 		_ = conn.SetDeadline(time.Now().Add(timeout))
-		if pkt, err := readSSHPacket(reader); err == nil && len(pkt) > 0 && pkt[0] == 20 {
+		if pkt, err := readFirstKEXINIT(reader); err == nil && len(pkt) > 0 {
 			parseKEXINIT(pkt[1:], &payload)
 		}
 		obs.Completeness = "full"
@@ -120,6 +120,33 @@ func (c *Collector) RunResult(ctx context.Context, in engine.CollectorInput) (en
 		Protocol:     "ssh",
 		Observations: []model.ObservationRecord{obs},
 	}, nil
+}
+
+const (
+	sshMsgIgnore  = 2
+	sshMsgDebug   = 4
+	sshMsgKEXINIT = 20
+)
+
+func readFirstKEXINIT(r io.Reader) ([]byte, error) {
+	for i := 0; i < 8; i++ {
+		pkt, err := readSSHPacket(r)
+		if err != nil {
+			return nil, err
+		}
+		if len(pkt) == 0 {
+			continue
+		}
+		switch pkt[0] {
+		case sshMsgIgnore, sshMsgDebug:
+			continue
+		case sshMsgKEXINIT:
+			return pkt, nil
+		default:
+			return nil, fmt.Errorf("unexpected ssh message %d", pkt[0])
+		}
+	}
+	return nil, fmt.Errorf("no kexinit after ignore/debug")
 }
 
 func readSSHPacket(r io.Reader) ([]byte, error) {

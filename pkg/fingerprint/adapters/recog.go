@@ -131,7 +131,25 @@ func (n *NativeRecog) Match(observations []model.ObservationRecord) ([]model.Cla
 		case model.ObservationSSH:
 			var p model.SSHObservation
 			_ = obs.DecodePayload(&p)
-			fields["banner"] = p.Banner
+			values := []string{}
+			if p.Banner != "" {
+				values = append(values, p.Banner)
+			}
+			if ident := sshSoftwareIdent(p.Banner); ident != "" && ident != p.Banner {
+				values = append(values, ident)
+			}
+			for _, val := range values {
+				claims, err := n.MatchField("ssh", "banner", val)
+				if err != nil {
+					return nil, err
+				}
+				for i := range claims {
+					claims[i].EvidenceIDs = []string{obs.ID}
+					claims[i].CorrelationGroup = "recog:" + obs.ObservationType
+				}
+				out = append(out, claims...)
+			}
+			continue
 		case model.ObservationHTTP:
 			var p model.HTTPObservation
 			_ = obs.DecodePayload(&p)
@@ -160,4 +178,24 @@ func (n *NativeRecog) Match(observations []model.ObservationRecord) ([]model.Cla
 		}
 	}
 	return out, nil
+}
+
+// RuleCount returns the number of compiled Recog rules.
+func (n *NativeRecog) RuleCount() int {
+	if n == nil {
+		return 0
+	}
+	return len(n.rules)
+}
+
+func sshSoftwareIdent(banner string) string {
+	banner = strings.TrimSpace(banner)
+	if !strings.HasPrefix(banner, "SSH-") {
+		return banner
+	}
+	parts := strings.SplitN(banner, "-", 3)
+	if len(parts) < 3 {
+		return banner
+	}
+	return parts[2]
 }

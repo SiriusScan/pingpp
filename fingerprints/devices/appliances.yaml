@@ -10,8 +10,8 @@
     - kind: device
       vendor: Cisco
       product: Cisco
-      certainty: strong
-      score: 88
+      certainty: hint
+      score: 55
     - kind: device
       vendor: Cisco
       device_type: network_device
@@ -28,8 +28,8 @@
   claims:
     - kind: device
       vendor: Fortinet
-      certainty: strong
-      score: 90
+      certainty: hint
+      score: 55
 - id: device-paloalto-http
   scope: device
   correlation_group: paloalto_web_ui
@@ -41,8 +41,8 @@
   claims:
     - kind: device
       vendor: Palo Alto Networks
-      certainty: strong
-      score: 90
+      certainty: hint
+      score: 55
 - id: device-vmware-http
   scope: device
   correlation_group: vmware_web_ui
@@ -54,8 +54,8 @@
   claims:
     - kind: device
       vendor: VMware
-      certainty: strong
-      score: 90
+      certainty: hint
+      score: 55
 - id: device-synology-http
   scope: device
   correlation_group: synology_web_ui
@@ -68,8 +68,8 @@
     - kind: device
       vendor: Synology
       device_type: nas
-      certainty: strong
-      score: 92
+      certainty: hint
+      score: 55
 - id: device-qnap-http
   scope: device
   correlation_group: qnap_web_ui
@@ -82,8 +82,8 @@
     - kind: device
       vendor: QNAP
       device_type: nas
-      certainty: strong
-      score: 90
+      certainty: hint
+      score: 55
 - id: device-idrac-http
   scope: device
   correlation_group: idrac_web_ui
@@ -97,8 +97,8 @@
       vendor: Dell
       product: iDRAC
       device_type: bmc
-      certainty: strong
-      score: 92
+      certainty: hint
+      score: 55
 - id: device-ilo-http
   scope: device
   correlation_group: ilo_web_ui
@@ -112,8 +112,8 @@
       vendor: HPE
       product: iLO
       device_type: bmc
-      certainty: strong
-      score: 92
+      certainty: hint
+      score: 55
 - id: device-pfsense-http
   scope: device
   correlation_group: pfsense_web_ui
@@ -127,8 +127,8 @@
       vendor: Netgate
       product: pfSense
       device_type: firewall
-      certainty: strong
-      score: 92
+      certainty: hint
+      score: 55
 - id: device-opnsense-http
   scope: device
   correlation_group: opnsense_web_ui
@@ -141,8 +141,8 @@
     - kind: device
       product: OPNsense
       device_type: firewall
-      certainty: strong
-      score: 92
+      certainty: hint
+      score: 55
 - id: device-mikrotik-http
   scope: device
   correlation_group: mikrotik_web_ui
@@ -154,8 +154,8 @@
   claims:
     - kind: device
       vendor: MikroTik
-      certainty: strong
-      score: 90
+      certainty: hint
+      score: 55
 - id: device-ubiquiti-http
   scope: device
   correlation_group: ubiquiti_web_ui
@@ -167,8 +167,8 @@
   claims:
     - kind: device
       vendor: Ubiquiti
-      certainty: strong
-      score: 88
+      certainty: hint
+      score: 55
 - id: device-sonicwall-http
   scope: device
   correlation_group: sonicwall_web_ui
@@ -181,8 +181,8 @@
     - kind: device
       vendor: SonicWall
       device_type: firewall
-      certainty: strong
-      score: 90
+      certainty: hint
+      score: 55
 - id: device-checkpoint-http
   scope: device
   correlation_group: checkpoint_web_ui
@@ -194,8 +194,8 @@
   claims:
     - kind: device
       vendor: Check Point
-      certainty: strong
-      score: 88
+      certainty: hint
+      score: 55
 - id: device-f5-http
   scope: device
   correlation_group: f5_web_ui
@@ -207,8 +207,8 @@
   claims:
     - kind: device
       vendor: F5
-      certainty: strong
-      score: 88
+      certainty: hint
+      score: 55
 - id: device-citrix-http
   scope: device
   correlation_group: citrix_web_ui
@@ -234,8 +234,8 @@
     - kind: device
       vendor: Proxmox
       product: Proxmox VE
-      certainty: strong
-      score: 92
+      certainty: hint
+      score: 55
 - id: device-juniper-http
   scope: device
   correlation_group: juniper_web_ui
@@ -247,8 +247,8 @@
   claims:
     - kind: device
       vendor: Juniper
-      certainty: strong
-      score: 88
+      certainty: hint
+      score: 55
 - id: device-arista-http
   scope: device
   correlation_group: arista_web_ui
@@ -260,8 +260,8 @@
   claims:
     - kind: device
       vendor: Arista
-      certainty: strong
-      score: 88
+      certainty: hint
+      score: 55
 - id: snmp-cisco-sysdescr
   scope: device
   correlation_group: snmp_sys

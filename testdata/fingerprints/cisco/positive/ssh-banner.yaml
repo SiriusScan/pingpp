@@ -1,0 +1,6 @@
+observation_type: ssh
+payload:
+  banner: SSH-2.0-Cisco-1.25
+expect:
+  product: Cisco IOS
+  min_confidence: strong

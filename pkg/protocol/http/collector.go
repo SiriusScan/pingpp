@@ -24,7 +24,7 @@ import (
 
 const (
 	collectorID  = "collect.http"
-	maxBody      = 64 * 1024
+	maxBody      = 256 * 1024
 	maxRedirects = 5
 )
 

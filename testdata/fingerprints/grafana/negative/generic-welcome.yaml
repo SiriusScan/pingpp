@@ -1,0 +1,6 @@
+observation_type: http
+payload:
+  title: Welcome
+  server: Apache
+reject:
+  product: Grafana

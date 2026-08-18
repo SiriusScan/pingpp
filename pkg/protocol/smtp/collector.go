@@ -5,6 +5,8 @@ import (
 	"fmt"
 	"time"
 
+	"strings"
+
 	"github.com/SiriusScan/ping++/pkg/engine"
 	"github.com/SiriusScan/ping++/pkg/model"
 	"github.com/SiriusScan/ping++/pkg/protocol/textproto"
@@ -28,8 +30,19 @@ func (c *Collector) RunResult(ctx context.Context, in engine.CollectorInput) (en
 	if in.Endpoint == nil {
 		return engine.CollectorResult{}, fmt.Errorf("smtp: endpoint required")
 	}
-	return textproto.CollectBannerResult(ctx, in, c.timeout, id, textproto.ObsSMTP, "smtp", "EHLO pingpp.local\r\n", textproto.PrefixMatch("220"))
+	return textproto.CollectBannerResult(ctx, in, c.timeout, id, textproto.ObsSMTP, "smtp", "EHLO pingpp.local\r\n", matchSMTP)
 }
+func matchSMTP(p textproto.BannerObservation) bool {
+	if !strings.HasPrefix(p.Banner, "220") {
+		return false
+	}
+	u := strings.ToUpper(p.Banner)
+	if strings.Contains(u, "FTP") {
+		return false
+	}
+	return strings.Contains(u, "SMTP")
+}
+
 func Register(r *engine.Registry) {
 	r.MustRegister(id, func(cfg engine.Config) (engine.Collector, error) { return New(cfg) })
 }

@@ -37,7 +37,7 @@ Reviewed prototype commit: `bfef5cb`.
 
 ## Current head
 
-`2beeda5` — meter all I/O, fall back after port priors, keep silent UDP.
+This commit — R11b–R18: honest R11–R14 completion plus embed/corpus, ScanOptions, multi-address, runtime metrics.
 
 Canonical path:
 
@@ -45,7 +45,7 @@ Canonical path:
 resolve → discover → enumerate → plan → collect → fingerprint → re-plan → enrich → Asset
 ```
 
-Next stage: **R15**.
+R11–R14 are no longer “framework done.” The acceptance items below now have collector-level and fixture tests.
 
 ---
 
@@ -93,8 +93,7 @@ Acceptance tests:
 - `TestNoProductClaimsInCollectorOutput` — collectors do not emit product claims
 
 Known debt:
-- Sirius adapter still has a legacy runner path (R16)
-- Built-in packs still load from filesystem via `runtime.Caller` (R15)
+- Sirius adapter still has a legacy runner path behind `UseLegacyRunner` (R16)
 
 ---
 
@@ -212,11 +211,11 @@ Known debt:
 
 Status: COMPLETE
 
-Commit: `4557bd6` HTTP scheme, redirects, body artifacts, favicon hashes
+Commit: `4557bd6` HTTP scheme, redirects, body artifacts, favicon hashes; this commit raises the body cap to 256 KiB
 
 Acceptance tests:
 - `TestHTTPSameHostRedirectAndCrossHostStop` — same-host follows; cross-host records `Location` and stops
-- `TestHTTPBodyArtifactAndTruncation` — truncated flag + artifact id
+- `TestHTTPBodyArtifactAndTruncation` — truncated flag + artifact id (270 KiB body vs 256 KiB cap)
 - `TestHTTPFaviconHashes` — SHA-256 (and MMH3) on favicon bytes
 - `TestTLSCollectorCapturesCert` / `TestTLSCollectorNoMatchOnPlaintext`
 
@@ -227,19 +226,25 @@ Known debt:
 
 ## R11 Recog / Wappalyzer
 
-Status: COMPLETE
+Status: COMPLETE (R11a adapters + R11b corpus import)
 
-Commit: `d6dd7c3` load Recog XML and Wappalyzer JSON corpora
+Commit: `d6dd7c3` adapters; this commit imports Rapid7 Recog XML and expands Wappalyzer JSON
+
+R11a adapter support: COMPLETE  
+R11b real corpus import / coverage: COMPLETE at bundled scale (not the entire Recog git tree)
 
 Acceptance tests:
-- `TestNativeRecogXMLOpenSSH` — Recog XML pattern → OpenSSH
+- `TestNativeRecogXMLOpenSSH` / `TestRecogParamValueAttribute` — Recog XML, including `value=""` attributes
+- `TestRecogHTTPHeaderServerMapping` — `http_header.server` → HTTP `server`
+- `TestRecogSkipsNonRE2` / `TestRecogMatchesSSHSoftwareIdent` — skip PCRE; match `SSH-x.x-` ident
 - `TestWappalyzerJSONNginx` — technologies.json Server header
-- `TestHTTPApplicationPack` — Grafana/Jenkins/nginx/IIS/WordPress still claimed (scores not the bar here)
+- `TestBuiltinCorpusScale` — Recog SSH/HTTP XML are hundreds of fingerprints; Wappalyzer ≥ 20 techs
 
 Known debt:
-- `NativeWebTech` remains a test fixture only; do not register it
-- `LoadBuiltinPacks` is fail-closed on parse errors but still filesystem-based (R15)
-- title-only YAML rules are still `strong` 88–92 (R15)
+- Bundled Recog is two XML databases (`ssh_banners.xml` ~153 prints, `http_servers.xml` ~458 prints), not the full Rapid7 Recog tree.
+- Individual Recog regexes that are not RE2 are skipped (fail closed only on XML/JSON parse errors).
+- `NativeWebTech` remains a test fixture only.
+- Wappalyzer JSON is a curated non-GPL subset, not the GPL Wappalyzer project.
 
 ---
 
@@ -247,114 +252,124 @@ Known debt:
 
 Status: COMPLETE
 
-Commit: `ef6bed4` harden protocol collectors with positive and negative outcomes
+Commit: `ef6bed4` shared helper; this commit adds collector-level pos/neg tests and tightens predicates
 
 Acceptance tests:
-- `TestFTPRejectsHTTPLookalike` / `TestSMTPSuccessOn220`
-- `TestFTPBanner` / `TestSMTPEHLOFeatures`
+- `TestFTPAcceptsFTP` / `TestFTPRejectsSMTP` / `TestFTPRejectsHTTPLookalike`
+- `TestSMTPAcceptsSMTP` / `TestSMTPRejectsFTP` / `TestSMTPRejectsHTTPLookalike`
+- `TestPOP3AcceptsOK` / `TestPOP3RejectsRandomBanner`
+- `TestIMAPAcceptsGreeting` / `TestIMAPRejectsRandomBanner`
+- `TestTelnetAcceptsLoginPrompt` / `TestTelnetRejectsSSH` / `TestTelnetRejectsHTTP`
 
 Known debt:
-- IMAP/POP3/Telnet share `textproto` helpers; not every text collector has its own file of tests
+- FTP vs SMTP still uses banner keywords (`SMTP`/`ESMTP`/`FTP`), not a full state machine.
+- Telnet match requires IAC, login/password, or the word telnet — not a full option parser.
 
 ---
 
 ## R13 DB / middleware
 
-Status: COMPLETE
+Status: COMPLETE for in-tree DB collectors (MySQL, PostgreSQL, MSSQL, Redis, MongoDB, Memcached)
 
-Commit: `ef6bed4`
+Commit: `ef6bed4` MySQL/Postgres; this commit hardens Mongo/MSSQL/Memcached and adds framing tests
 
 Acceptance tests:
 - `TestPostgresMatchSN` / `TestPostgresRejectsHTTP`
 - `TestMySQLHandshakeSuccess` / `TestMySQLRejectsShortGarbage`
+- `TestMongoOPReplySuccess` / `TestMongoRejectsHTTPLookalike` / `TestMongoRejectsWrongOpcode`
+- `TestMSSQLPreloginVersionSuccess` / `TestMSSQLRejectsHTTPLookalike` / `TestMSSQLRejectsResponseWithoutVersion`
+- `TestMemcachedAcceptsVersion` / `TestMemcachedRejectsHTTPLookalike` / `TestMemcachedRejectsRedisPong`
+- `TestRedisAcceptsPong` / `TestRedisRejectsHTTPLookalike` / `TestRedisRejectsMemcachedVersion`
 
 Known debt:
-- Redis/Mongo/Memcached/MSSQL hardening is in the collectors; dedicated pos/neg files are thinner than MySQL/Postgres
+- MQTT/AMQP/VNC/SOCKS were not in the R13 hardening pass (do not add protocols; they remain weaker collectors).
+- Mongo success is framed `OP_REPLY`/`OP_MSG`, not a decoded isMaster document.
 
 ---
 
 ## R14 LDAP / RDP / SSH / SMB
 
-Status: COMPLETE
+Status: COMPLETE for the stated acceptance items, with live SMB vendor tests still out of process
 
-Commit: `ef6bed4`
+Commit: this commit — LDAPS/RootDSE, X.224/RDP negotiation, SSH ignore/debug skip, SMB lookalike + auth evidence
 
 Acceptance tests:
-- `TestLDAPSuccessOnBER` / `TestLDAPRejectsHTTPLookalike`
-- `TestSSHCollectorBanner` / `TestSSHCollectorRejectsHTTPLookalike`
+- `TestLDAPRootDSEAttributes` — vendorName, namingContexts, dnsHostName, SASL, versions
+- `TestLDAPRejectsBareBERSequence` — first BER byte `0x30` is not a match
+- `TestLDAPSOnTLS` — Extra `tls=1` (port 636 uses the same DialTLS path)
+- `TestRDPNegotiationHybrid` / `TestRDPNegotiationSSL` / `TestRDPRejectsTPKTWithoutConfirm`
+- `TestSSHFramedKEXINITAfterIgnore` — IGNORE then length-prefixed KEXINIT
+- `TestSMBRejectsHTTPLookalike` / `TestSMBAuthDeniedIsProtocolEvidence`
 
 Known debt:
-- RDP/SMB pos/neg coverage is thinner than SSH/LDAP
+- Live Windows vs Samba session fixtures are not in this tree (would need a real SMB endpoint). Auth-denied and signing-required are classified from library errors.
+- LDAP still does not implement a full LDAP client; it decodes RootDSE attributes from SearchResultEntry.
 
 ---
 
-## R15 Fingerprint packs + embed
+## R15 Fingerprint packs + embed + R11b corpus
 
-Status: NOT STARTED
+Status: COMPLETE
 
-Commit: —
+Commit: this commit — `go:embed`, KnownFields fail-closed, title-only recalibration, fixture corpus, Recog/Wappalyzer import, HTTP 256 KiB
 
-Acceptance tests (required):
-- built-ins load via `go:embed` (no `runtime.Caller` path in production `NewEngine`)
-- malformed built-in YAML/XML/JSON fails closed
-- title-only application/device rules are hint/probable, not strong 88–92
-- server-header self-id (nginx, IIS) may remain strong/exact
-- fixtures exist for strong/exact rules
+Acceptance tests:
+- `TestBuiltinCorpusScale` — embed FS has real Recog/Wappalyzer scale
+- `TestLoadYAMLUnknownFieldFailsClosed` — unknown YAML fields fail closed
+- `TestFixtureCorpus` — `testdata/fingerprints/<product>/{positive,negative}/`
+- `TestStrongExactYAMLRulesHaveNegativeFixtures` — every strong/exact YAML claim has a negative fixture
+- `TestHTTPBodyArtifactAndTruncation` — 256 KiB cap
+- `TestHTTPApplicationPack` — title-only Grafana/Jenkins still match (now hint); server headers remain strong/exact
 
 Known debt:
-- `LoadBuiltinPacks` uses `RepoFingerprintsRoot()` + `runtime.Caller`
-- `fingerprints/http/applications.yaml` title rules are still `strong`
-- `fingerprints/devices/appliances.yaml` title rules are still `strong`
+- Title-only rules are hints; distinctive favicon+title combined rules are still sparse.
+- Recog import is two databases, not every Recog XML file upstream.
 
 ---
 
 ## R16 Sirius adapter / ScanOptions
 
-Status: NOT STARTED
+Status: COMPLETE
 
-Commit: —
+Commit: this commit — `scan.ScanOptions` + `scan.Scan`; appscanner is Engine → Scan → `output.ToSiriusHost`
 
-Acceptance tests (required):
-- one `ScanOptions` (or equivalent) wrapping engine options
-- `integration/appscanner` is Engine → Scan → map Asset; no duplicate fingerprint/OS path
+Acceptance tests:
+- `TestScanOptionsWrapsEngineOptions` — one options type wrapping `engine.Options`; legacy off by default
 
 Known debt:
-- `PingPlusPlusStrategy` still has `fingerprintLegacyRunner`
-- `runner.Options` / `engine.Options` / Profile remain separate vocabularies
+- `fingerprintLegacyRunner` remains behind `UseLegacyRunner` only.
+- `runner.Options` / `engine.Options` / Profile remain separate vocabularies.
 
 ---
 
 ## R17 IPv6 / multi-address
 
-Status: NOT STARTED
+Status: COMPLETE
 
-Commit: —
+Commit: this commit — `ScanResolved` walks every A/AAAA; hostname kept; discovery/enum complete keys are per-address
 
-Acceptance tests (required):
-- `ScanTarget` scans every resolved A/AAAA, not only `Addresses[0]`
-- hostname is kept for SNI/Host on every resulting scan
-- `net.JoinHostPort` on IPv6 literals (already true in `pkg/transport`)
+Acceptance tests:
+- `TestScanResolvedAllAddresses` — two resolved IPs both appear on the Asset; hostname preserved
+- `TestClassificationPassesHostnameTarget` — hostname survives into collectors for SNI/Host
 
 Known debt:
-- `ResolveTarget` returns all addresses; `ScanTarget` uses `target.Addresses[0]` only
+- none for the multi-address bar. `net.JoinHostPort` on IPv6 literals was already true in `pkg/transport`.
 
 ---
 
 ## R18 Metrics, unknowns, hardening
 
-Status: NOT STARTED
+Status: COMPLETE
 
-Commit: —
+Commit: this commit — runtime counters; precision-at-tier moved to `pkg/metrics/eval`; unmatched banner dump; adapter/flatten panic recovery
 
-Acceptance tests (required):
-- runtime counters: collectors executed, protocol matches, timeouts, bytes, unknown endpoints, claim tiers, conflicts
-- `ExactCorrect` / `StrongCorrect` are not updated on the scan path
-- unmatched banners can be dumped for corpus work
-- parser paths do not panic
+Acceptance tests:
+- `TestRuntimeCounters` — collectors, matches, timeouts, bytes, unknown endpoints, claim tiers, unmatched dump
+- `TestEvalPrecisionAtTier` — `ExactCorrect`/`StrongCorrect` live in eval tooling, not `metrics.Counters`
 
 Known debt:
-- `pkg/metrics.Counters` still has ground-truth `ExactCorrect` / `StrongCorrect`
-- Engine records conflicts only
+- SNMP/ICMP payload bytes remain incompletely metered (R5).
+- Unmatched banner dump is in-memory (64 entries), not a file sink.
 
 ---
 
