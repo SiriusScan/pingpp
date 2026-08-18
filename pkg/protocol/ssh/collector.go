@@ -5,7 +5,9 @@ package sshcol
 import (
 	"bufio"
 	"context"
+	"encoding/binary"
 	"fmt"
+	"io"
 	"strings"
 	"time"
 
@@ -90,10 +92,8 @@ func (c *Collector) RunResult(ctx context.Context, in engine.CollectorInput) (en
 	if strings.HasPrefix(payload.Banner, "SSH-") {
 		_, _ = conn.Write([]byte("SSH-2.0-pingpp_0.1\r\n"))
 		_ = conn.SetDeadline(time.Now().Add(timeout))
-		buf := make([]byte, 16*1024)
-		n, _ := reader.Read(buf)
-		if n > 0 {
-			parseKEXINIT(buf[:n], &payload)
+		if pkt, err := readSSHPacket(reader); err == nil && len(pkt) > 0 && pkt[0] == 20 {
+			parseKEXINIT(pkt[1:], &payload)
 		}
 		obs.Completeness = "full"
 		if err := obs.SetPayload(payload); err != nil {
@@ -122,21 +122,31 @@ func (c *Collector) RunResult(ctx context.Context, in engine.CollectorInput) (en
 	}, nil
 }
 
-// parseKEXINIT extracts name-lists from an SSH_MSG_KEXINIT payload if present.
-func parseKEXINIT(data []byte, payload *model.SSHObservation) {
-	// Find SSH_MSG_KEXINIT (message type 20) after optional packet framing.
-	idx := -1
-	for i := 0; i+1 < len(data); i++ {
-		if data[i] == 20 && i+16 < len(data) {
-			idx = i
-			break
-		}
+func readSSHPacket(r io.Reader) ([]byte, error) {
+	var hdr [4]byte
+	if _, err := io.ReadFull(r, hdr[:]); err != nil {
+		return nil, err
 	}
-	if idx < 0 {
+	n := binary.BigEndian.Uint32(hdr[:])
+	if n < 2 || n > 256*1024 {
+		return nil, fmt.Errorf("invalid ssh packet length %d", n)
+	}
+	body := make([]byte, n)
+	if _, err := io.ReadFull(r, body); err != nil {
+		return nil, err
+	}
+	pad := int(body[0])
+	if pad+1 >= len(body) {
+		return nil, fmt.Errorf("invalid ssh padding")
+	}
+	return body[1 : len(body)-pad], nil
+}
+
+func parseKEXINIT(data []byte, payload *model.SSHObservation) {
+	if len(data) < 16 {
 		return
 	}
-	// Skip message type (1) + cookie (16)
-	pos := idx + 1 + 16
+	pos := 16 // cookie
 	readList := func() []string {
 		if pos+4 > len(data) {
 			return nil
@@ -155,10 +165,10 @@ func parseKEXINIT(data []byte, payload *model.SSHObservation) {
 	}
 	payload.KexAlgorithms = readList()
 	payload.HostKeyAlgorithms = readList()
-	payload.EncryptionAlgorithms = readList() // client-to-server
-	_ = readList()                            // server-to-client enc
+	payload.EncryptionAlgorithms = readList()
+	_ = readList()
 	payload.MACAlgorithms = readList()
-	_ = readList() // s2c mac
+	_ = readList()
 	payload.Compression = readList()
 }
 

@@ -28,8 +28,12 @@ func (c *Collector) Metadata() engine.CollectorMetadata {
 	return engine.CollectorMetadata{ID: id, Stage: engine.StageCollect, Transports: []model.Transport{model.TransportTCP}, DefaultPorts: []uint16{6379}, Cost: 2, Priority: 55, SideEffectRisk: "low", SafeForOT: true}
 }
 func (c *Collector) Run(ctx context.Context, in engine.CollectorInput) ([]model.ObservationRecord, error) {
+	res, err := c.RunResult(ctx, in)
+	return res.Observations, err
+}
+func (c *Collector) RunResult(ctx context.Context, in engine.CollectorInput) (engine.CollectorResult, error) {
 	if in.Endpoint == nil {
-		return nil, fmt.Errorf("redis: endpoint required")
+		return engine.CollectorResult{}, fmt.Errorf("redis: endpoint required")
 	}
 	ref := in.Endpoint.Ref()
 	obs := model.ObservationRecord{ID: fmt.Sprintf("obs:redis:%d", time.Now().UnixNano()), ProbeID: id, ObservationType: "redis", Endpoint: &ref, Timestamp: time.Now().UTC(), CorrelationGroup: fmt.Sprintf("redis:%s:%d", in.Endpoint.Address, in.Endpoint.Port)}
@@ -40,7 +44,7 @@ func (c *Collector) Run(ctx context.Context, in engine.CollectorInput) ([]model.
 	if err != nil {
 		obs.Error = err.Error()
 		obs.Completeness = "none"
-		return []model.ObservationRecord{obs}, nil
+		return engine.CollectorResult{Outcome: engine.OutcomeFromError(err), Protocol: "redis", Observations: []model.ObservationRecord{obs}}, nil
 	}
 	defer func() { _ = conn.Close() }()
 	_ = conn.SetDeadline(time.Now().Add(c.timeout))
@@ -67,14 +71,15 @@ func (c *Collector) Run(ctx context.Context, in engine.CollectorInput) ([]model.
 			}
 		}
 	}
-	if payload.Pong || payload.Version != "" {
+	if payload.Pong {
 		obs.Completeness = "full"
-	} else {
-		obs.Completeness = "none"
-		obs.Error = "no redis response"
+		_ = obs.SetPayload(payload)
+		return engine.CollectorResult{Outcome: engine.OutcomeSuccess, Protocol: "redis", Observations: []model.ObservationRecord{obs}}, nil
 	}
+	obs.Completeness = "none"
+	obs.Error = "no redis pong"
 	_ = obs.SetPayload(payload)
-	return []model.ObservationRecord{obs}, nil
+	return engine.CollectorResult{Outcome: engine.OutcomeNoMatch, Protocol: "redis", Observations: []model.ObservationRecord{obs}}, nil
 }
 func Register(r *engine.Registry) {
 	r.MustRegister(id, func(cfg engine.Config) (engine.Collector, error) { return New(cfg) })

@@ -62,6 +62,40 @@ func TestSMTPEHLOFeatures(t *testing.T) {
 	}
 }
 
+func TestFTPRejectsHTTPLookalike(t *testing.T) {
+	ln := serveLines(t, []string{"HTTP/1.1 200 OK\r\n"})
+	defer func() { _ = ln.Close() }()
+	port := uint16(ln.Addr().(*net.TCPAddr).Port)
+	c, _ := ftp.New(engine.Config{Timeout: time.Second})
+	ep := model.NewEndpoint("127.0.0.1", port, model.TransportTCP, model.EndpointOpen)
+	res, err := c.RunResult(context.Background(), engine.CollectorInput{Endpoint: &ep})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if res.Outcome != engine.OutcomeNoMatch {
+		t.Fatalf("HTTP lookalike ftp outcome=%q", res.Outcome)
+	}
+}
+
+func TestSMTPSuccessOn220(t *testing.T) {
+	ln := serveLines(t, []string{
+		"220 mail.example ESMTP\r\n",
+		"250-mail.example\r\n",
+		"250 STARTTLS\r\n",
+	})
+	defer func() { _ = ln.Close() }()
+	port := uint16(ln.Addr().(*net.TCPAddr).Port)
+	c, _ := smtp.New(engine.Config{Timeout: time.Second})
+	ep := model.NewEndpoint("127.0.0.1", port, model.TransportTCP, model.EndpointOpen)
+	res, err := c.RunResult(context.Background(), engine.CollectorInput{Endpoint: &ep})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if res.Outcome != engine.OutcomeSuccess {
+		t.Fatalf("smtp outcome=%q", res.Outcome)
+	}
+}
+
 func serveLines(t *testing.T, lines []string) net.Listener {
 	t.Helper()
 	ln, err := net.Listen("tcp", "127.0.0.1:0")

@@ -39,8 +39,14 @@ func (c *Collector) Metadata() engine.CollectorMetadata {
 
 // Run implements engine.Collector.
 func (c *Collector) Run(ctx context.Context, in engine.CollectorInput) ([]model.ObservationRecord, error) {
+	res, err := c.RunResult(ctx, in)
+	return res.Observations, err
+}
+
+// RunResult implements engine.ResultCollector.
+func (c *Collector) RunResult(ctx context.Context, in engine.CollectorInput) (engine.CollectorResult, error) {
 	if in.Endpoint == nil {
-		return nil, fmt.Errorf("smb: endpoint required")
+		return engine.CollectorResult{}, fmt.Errorf("smb: endpoint required")
 	}
 	ip := in.Endpoint.Address
 	port := int(in.Endpoint.Port)
@@ -73,7 +79,11 @@ func (c *Collector) Run(ctx context.Context, in engine.CollectorInput) ([]model.
 		if !authRelated {
 			obs.Error = errStr
 			obs.Completeness = "none"
-			return []model.ObservationRecord{obs}, nil
+			out := engine.OutcomeFromError(err)
+			if out == engine.OutcomeInternalError {
+				out = engine.OutcomeNoMatch
+			}
+			return engine.CollectorResult{Outcome: out, Protocol: "smb", Observations: []model.ObservationRecord{obs}}, nil
 		}
 		obs.Completeness = "partial"
 		if session != nil {
@@ -86,9 +96,9 @@ func (c *Collector) Run(ctx context.Context, in engine.CollectorInput) ([]model.
 		obs.Completeness = "full"
 	}
 	if err := obs.SetPayload(payload); err != nil {
-		return nil, err
+		return engine.CollectorResult{}, err
 	}
-	return []model.ObservationRecord{obs}, nil
+	return engine.CollectorResult{Outcome: engine.OutcomeSuccess, Protocol: "smb", Observations: []model.ObservationRecord{obs}}, nil
 }
 
 func fillSMB(session *gosmb.Connection, payload *model.SMBObservation) {

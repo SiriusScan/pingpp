@@ -78,6 +78,37 @@ func CollectBanner(ctx context.Context, in engine.CollectorInput, timeout time.D
 	return obs, nil
 }
 
+// CollectBannerResult is CollectBanner plus a protocol match decision.
+func CollectBannerResult(ctx context.Context, in engine.CollectorInput, timeout time.Duration, probeID, obsType, protocol, command string, match func(BannerObservation) bool) (engine.CollectorResult, error) {
+	obs, err := CollectBanner(ctx, in, timeout, probeID, obsType, command)
+	if err != nil {
+		return engine.CollectorResult{Outcome: engine.OutcomeFromError(err), Protocol: protocol, Observations: []model.ObservationRecord{obs}}, err
+	}
+	var payload BannerObservation
+	_ = obs.DecodePayload(&payload)
+	if obs.Error != "" && payload.Banner == "" {
+		out := engine.OutcomeFromError(fmt.Errorf("%s", obs.Error))
+		if out == engine.OutcomeInternalError {
+			out = engine.OutcomeNoMatch
+		}
+		return engine.CollectorResult{Outcome: out, Protocol: protocol, Observations: []model.ObservationRecord{obs}}, nil
+	}
+	if match != nil && match(payload) {
+		return engine.CollectorResult{Outcome: engine.OutcomeSuccess, Protocol: protocol, Observations: []model.ObservationRecord{obs}}, nil
+	}
+	obs.Completeness = "none"
+	if obs.Error == "" {
+		obs.Error = "no match"
+	}
+	return engine.CollectorResult{Outcome: engine.OutcomeNoMatch, Protocol: protocol, Observations: []model.ObservationRecord{obs}}, nil
+}
+
+func PrefixMatch(prefix string) func(BannerObservation) bool {
+	return func(p BannerObservation) bool {
+		return strings.HasPrefix(p.Banner, prefix) || strings.HasPrefix(p.Reply, prefix)
+	}
+}
+
 func extractFeatures(lines []string) []string {
 	var out []string
 	for _, line := range lines {
