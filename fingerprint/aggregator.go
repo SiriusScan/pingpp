@@ -6,7 +6,7 @@ import (
 	"sort"
 	"strings"
 
-	"github.com/SiriusScan/ping++/pkg/probes"
+	"github.com/SiriusScan/pingpp/pkg/probes"
 )
 
 // Aggregator combines evidence from multiple sources to determine OS

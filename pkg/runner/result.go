@@ -4,8 +4,8 @@ import (
 	"encoding/json"
 	"time"
 
-	"github.com/SiriusScan/ping++/fingerprint"
-	"github.com/SiriusScan/ping++/pkg/probes"
+	"github.com/SiriusScan/pingpp/fingerprint"
+	"github.com/SiriusScan/pingpp/pkg/probes"
 )
 
 // Result contains the aggregated results for a single host.

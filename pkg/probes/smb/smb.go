@@ -9,7 +9,7 @@ import (
 	"strings"
 	"time"
 
-	"github.com/SiriusScan/ping++/pkg/probes"
+	"github.com/SiriusScan/pingpp/pkg/probes"
 	gosmb "github.com/jfjallid/go-smb/smb"
 	"github.com/jfjallid/go-smb/spnego"
 )

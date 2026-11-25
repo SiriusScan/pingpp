@@ -13,7 +13,7 @@ import (
 	"strings"
 	"time"
 
-	"github.com/SiriusScan/ping++/pkg/probes"
+	"github.com/SiriusScan/pingpp/pkg/probes"
 )
 
 // #region agent log
