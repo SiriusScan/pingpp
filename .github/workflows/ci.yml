@@ -27,6 +27,29 @@ jobs:
         with:
           go-version: ${{ matrix.go-version }}
 
+      - name: Verify published Go module
+        if: github.event_name == 'push' && github.ref_name == github.event.repository.default_branch && matrix.os == 'ubuntu-latest'
+        shell: bash
+        env:
+          GOPROXY: https://proxy.golang.org
+          GOSUMDB: sum.golang.org
+        run: |
+          smoke_dir="$(mktemp -d)"
+          cd "$smoke_dir"
+          go mod init example.com/pingpp-smoke
+          go get "github.com/SiriusScan/pingpp/pkg/runner@$GITHUB_SHA"
+          go mod download -json github.com/SiriusScan/pingpp
+          cat >main.go <<'EOF'
+          package main
+
+          import "github.com/SiriusScan/pingpp/pkg/runner"
+
+          func main() {
+              _ = runner.DefaultOptions()
+          }
+          EOF
+          go build -mod=readonly .
+
       - name: Download dependencies
         run: go mod download
 
