@@ -9,7 +9,7 @@ import (
 	"fmt"
 	"time"
 
-	"github.com/SiriusScan/ping++/pkg/runner"
+	"github.com/SiriusScan/pingpp/pkg/runner"
 )
 
 func main() {

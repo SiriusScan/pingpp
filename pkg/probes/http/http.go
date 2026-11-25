@@ -12,7 +12,7 @@ import (
 	"strings"
 	"time"
 
-	"github.com/SiriusScan/ping++/pkg/probes"
+	"github.com/SiriusScan/pingpp/pkg/probes"
 )
 
 // Default HTTP ports

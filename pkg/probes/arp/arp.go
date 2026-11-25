@@ -6,7 +6,7 @@ import (
 	"context"
 	"time"
 
-	"github.com/SiriusScan/ping++/pkg/probes"
+	"github.com/SiriusScan/pingpp/pkg/probes"
 )
 
 // Probe implements the probes.Probe interface using ARP requests.

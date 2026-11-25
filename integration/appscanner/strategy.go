@@ -7,8 +7,8 @@ import (
 	"context"
 	"time"
 
-	"github.com/SiriusScan/ping++/fingerprint"
-	"github.com/SiriusScan/ping++/pkg/runner"
+	"github.com/SiriusScan/pingpp/fingerprint"
+	"github.com/SiriusScan/pingpp/pkg/runner"
 )
 
 // FingerprintResult mirrors the app-scanner FingerprintResult type.

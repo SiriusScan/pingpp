@@ -9,7 +9,7 @@ import (
 
 	probing "github.com/prometheus-community/pro-bing"
 
-	"github.com/SiriusScan/ping++/pkg/probes"
+	"github.com/SiriusScan/pingpp/pkg/probes"
 )
 
 // Probe implements the probes.Probe interface using ICMP Echo.

@@ -11,7 +11,7 @@ import (
 	"syscall"
 	"time"
 
-	"github.com/SiriusScan/ping++/pkg/probes"
+	"github.com/SiriusScan/pingpp/pkg/probes"
 )
 
 // DefaultPorts are the standard ports for TCP probing.

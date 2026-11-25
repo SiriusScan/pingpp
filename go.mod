@@ -1,4 +1,4 @@
-module github.com/SiriusScan/ping++
+module github.com/SiriusScan/pingpp
 
 go 1.24.0
 

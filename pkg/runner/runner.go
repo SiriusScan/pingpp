@@ -13,14 +13,14 @@ import (
 	"sync/atomic"
 	"time"
 
-	"github.com/SiriusScan/ping++/fingerprint"
-	"github.com/SiriusScan/ping++/pkg/probes"
-	"github.com/SiriusScan/ping++/pkg/probes/arp"
-	"github.com/SiriusScan/ping++/pkg/probes/http"
-	"github.com/SiriusScan/ping++/pkg/probes/icmp"
-	"github.com/SiriusScan/ping++/pkg/probes/smb"
-	"github.com/SiriusScan/ping++/pkg/probes/ssh"
-	"github.com/SiriusScan/ping++/pkg/probes/tcp"
+	"github.com/SiriusScan/pingpp/fingerprint"
+	"github.com/SiriusScan/pingpp/pkg/probes"
+	"github.com/SiriusScan/pingpp/pkg/probes/arp"
+	"github.com/SiriusScan/pingpp/pkg/probes/http"
+	"github.com/SiriusScan/pingpp/pkg/probes/icmp"
+	"github.com/SiriusScan/pingpp/pkg/probes/smb"
+	"github.com/SiriusScan/pingpp/pkg/probes/ssh"
+	"github.com/SiriusScan/pingpp/pkg/probes/tcp"
 )
 
 // #region agent log

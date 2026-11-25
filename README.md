@@ -15,95 +15,42 @@ Key features:
 - **Multi-source OS detection** - SSH banners, HTTP headers, SMB negotiation, TTL, and port analysis
 - **Confidence scoring** - Weighted evidence aggregation with confidence percentages
 - **Multiple probe types** - ICMP, TCP, SSH, HTTP, SMB, ARP
-- **Library-first design** - Use as CLI or import in your Go projects
+- **Library-first design** - Import the runner and integration packages in Go
 - **Sirius integration** - Works with the Sirius vulnerability scanning platform
 
 ## Installation
 
-```bash
-go install github.com/SiriusScan/ping++/cmd/pingpp@latest
-```
-
-Or build from source:
+ping++ uses Go 1.24 or later. In an existing Go module, set
+`PINGPP_REVISION` to the full SHA of a published commit that declares the
+canonical module path, then add the library:
 
 ```bash
-git clone https://github.com/SiriusScan/ping++
-cd ping++
-go build -o pingpp ./cmd/pingpp
+go get github.com/SiriusScan/pingpp/pkg/runner@"$PINGPP_REVISION"
 ```
+
+Go records the resolved version and checksums in `go.mod` and `go.sum`.
+If migrating from `github.com/SiriusScan/ping++`, update imports to
+`github.com/SiriusScan/pingpp`, remove the old filesystem replacement
+and run `go mod tidy`.
 
 ## Usage
 
-### CLI
-
-```bash
-# Scan a single host (shows only alive hosts by default)
-pingpp -t 192.168.1.100
-
-# Scan a subnet
-pingpp -t 192.168.1.0/24
-
-# Verbose output - shows detection reasoning
-pingpp -t 192.168.1.100 -v
-
-# Show all hosts (including offline)
-pingpp -t 192.168.1.0/24 -a
-
-# Verbose + all hosts (full detail)
-pingpp -t 192.168.1.0/24 -v -a
-
-# Scan with specific probes
-pingpp -t 192.168.1.0/24 -probes icmp,tcp
-
-# Output to JSON
-pingpp -t 192.168.1.0/24 -json -o results.json
-
-# Scan from file
-pingpp -l targets.txt
-
-# Unprivileged mode (no ICMP)
-pingpp -t 192.168.1.0/24 -no-icmp
-```
-
 ### Library
+
+This program verifies that an application can import the runner and use its
+default configuration.
 
 ```go
 package main
 
-import (
-    "context"
-    "fmt"
-    "time"
-
-    "github.com/SiriusScan/ping++/pkg/runner"
-)
+import "github.com/SiriusScan/pingpp/pkg/runner"
 
 func main() {
-    options := runner.DefaultOptions()
-    options.Targets = []string{"192.168.1.0/24"}
-    options.ProbeTypes = []string{"icmp", "tcp"}
-    options.Timeout = 3 * time.Second
-
-    options.OnResult = func(result *runner.Result) {
-        fmt.Printf("%s [%s] OS:%s TTL:%d\n",
-            result.IP,
-            boolToStatus(result.IsAlive),
-            result.OSFamily,
-            result.TTL,
-        )
-    }
-
-    r, _ := runner.NewRunner(options)
-    defer r.Close()
-
-    r.RunEnumeration(context.Background())
-}
-
-func boolToStatus(alive bool) string {
-    if alive { return "up" }
-    return "down"
+    _ = runner.DefaultOptions()
 }
 ```
+
+See [examples/simple](examples/simple) for a runner usage example.
 
 ## Probe Types
 
@@ -172,46 +119,12 @@ ping++ uses a **multi-source fingerprinting engine** with weighted evidence aggr
 | 128          | Windows                |
 | 255          | Cisco, network devices |
 
-## Options
-
-```
-INPUT:
-   -t, -target       Target to scan (IP, CIDR, hostname)
-   -l, -list         File containing list of targets
-
-PROBES:
-   -p, -probes       Probe types to use (icmp,tcp,ssh,http,smb,arp)
-   -ports            TCP ports for probing (default: 22,80,443)
-   -no-icmp          Disable ICMP probing
-
-OUTPUT:
-   -o, -output       Output file
-   -json             Output in JSON format
-   -v, -verbose      Verbose output with detection reasoning
-   -a, -all          Show all hosts (including offline; default: only alive)
-   -silent           Silent mode
-   -debug            Debug mode
-
-CONFIGURATION:
-   -timeout          Timeout in seconds (default: 3)
-   -retries          Number of retries (default: 2)
-   -rate             Probes per second (default: 100)
-   -threads          Concurrent threads (default: 50)
-   -resolve          Resolve hostnames
-
-OUTPUT:
-   -o, -output       Output file
-   -json             Output in JSON format
-   -silent           Silent mode
-   -debug            Debug mode
-```
-
 ## Integration with Sirius
 
 ping++ integrates with the [Sirius](https://github.com/SiriusScan) vulnerability scanning platform as the fingerprinting engine:
 
 ```go
-import "github.com/SiriusScan/ping++/integration/appscanner"
+import "github.com/SiriusScan/pingpp/integration/appscanner"
 
 // Create strategy for app-scanner
 strategy := appscanner.NewStrategy()
@@ -228,8 +141,7 @@ fmt.Printf("Alive: %t, OS: %s\n", result.IsAlive, result.OSFamily)
 ## Project Structure
 
 ```
-ping++/
-├── cmd/pingpp/          # CLI entry point
+pingpp/
 ├── pkg/
 │   ├── runner/          # Core runner and options
 │   └── probes/          # Probe implementations
@@ -256,34 +168,19 @@ ping++/
 - Go 1.24+
 - Root/Admin for ICMP probing (optional)
 
-### Building
+### Building and testing
 
 ```bash
-go build ./...
-```
-
-### Testing
-
-```bash
-go test ./...
-```
-
-### Running locally
-
-```bash
-# With ICMP (requires root)
-sudo go run ./cmd/pingpp -t 127.0.0.1
-
-# Without ICMP
-go run ./cmd/pingpp -t 127.0.0.1 -no-icmp
+git clone https://github.com/SiriusScan/pingpp.git
+cd pingpp
+GOWORK=off go build ./...
+GOWORK=off go test -race ./...
 ```
 
 ## Dependencies
 
 - [pro-bing](https://github.com/prometheus-community/pro-bing) - ICMP operations
-- [goflags](https://github.com/projectdiscovery/goflags) - CLI parsing
 - [gologger](https://github.com/projectdiscovery/gologger) - Logging
-- [go-api](https://github.com/SiriusScan/go-api) - Sirius types
 
 ## License
 
